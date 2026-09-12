@@ -113,7 +113,7 @@ Exit gate: a harmless real Hatari + EmuTOS run produces at least one structured 
 
 ## M4 — Media and persistence evidence
 
-Status: M4.1 implemented; M4.2 runtime-qualified; M4.3 implementation in qualification.
+Status: runtime-qualified through M4.3; M4.4 next.
 
 - floppy/HDD read/write observations
 - boot-sector write detection
@@ -151,7 +151,7 @@ Exit gate: harmless Hatari + EmuTOS runtime produces real sector-level floppy-re
 
 ## M4.3 — Controlled media writes
 
-Status: implemented; GitHub Actions qualification pending.
+Status: PASS on GitHub Actions run 34714784136 at commit `3f4e53775ea467f583011aebe5464fe728b149d0`.
 
 - enable a CI-only deterministic write probe only with `ATARISANDBOX_M4_3_CONTROLLED_WRITE=1`
 - operate exclusively on the disposable runtime image after real guest boot-sector access
@@ -160,9 +160,23 @@ Status: implemented; GitHub Actions qualification pending.
 - mark qualification-probe evidence with `controlled_test=true`
 - bind pre/post runtime-media SHA-256 to the observed write evidence
 - verify the immutable source image remains unchanged
+- use a one-shot controlled mutation and graceful Hatari shutdown so the changed image is flushed exactly once
 - keep networking and writable host shared folders disabled
 
-Exit gate: CI proves a hash-visible controlled write through Hatari's real floppy-write path, correct boot-sector classification, and immutable source preservation.
+Exit gate: CI proves a hash-visible controlled write through Hatari's real floppy-write path, correct boot-sector classification, and immutable source preservation. PASS.
+
+## M4.4 — Runtime visual and memory evidence
+
+Status: planned; next implementation milestone.
+
+- deterministic screenshot capture from the harmless EmuTOS runtime
+- bounded selected memory snapshot(s)
+- SHA-256 identity for every captured evidence object
+- manifest references tying screenshot and memory evidence to the runtime session
+- strict size/count limits and analysis-directory-only output
+- retain deny-by-default networking and host-share policy
+
+Exit gate: CI captures and validates deterministic visual and bounded memory evidence from a harmless Hatari + EmuTOS runtime and uploads a hash-bound evidence bundle.
 
 ## M5 — ASW adapter
 
