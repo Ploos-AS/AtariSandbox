@@ -5,6 +5,7 @@
  * under the same GPL-2.0-or-later terms as Hatari; see gpl.txt.
  */
 #include <inttypes.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -211,5 +212,42 @@ void __wrap_M68000_Exception(uint32_t exception_nr, int exception_source)
 {
 	AtariAnalysis_RecordException(exception_nr, exception_source);
 	__real_M68000_Exception(exception_nr, exception_source);
+}
+#endif
+
+#ifdef ATARISANDBOX_LD_WRAP_FLOPPY
+extern bool __real_Floppy_ReadSectors(int drive, uint8_t **buffer,
+                                     uint16_t sector, uint16_t track,
+                                     uint16_t side, short count,
+                                     int *sectors_per_track, int *sector_size);
+extern bool __real_Floppy_WriteSectors(int drive, uint8_t *buffer,
+                                      uint16_t sector, uint16_t track,
+                                      uint16_t side, short count,
+                                      int *sectors_per_track, int *sector_size);
+
+bool __wrap_Floppy_ReadSectors(int drive, uint8_t **buffer,
+                              uint16_t sector, uint16_t track,
+                              uint16_t side, short count,
+                              int *sectors_per_track, int *sector_size)
+{
+	bool ok = __real_Floppy_ReadSectors(drive, buffer, sector, track, side,
+	                                   count, sectors_per_track, sector_size);
+	if (ok)
+		AtariAnalysis_RecordFloppyIO("read", drive, sector, track, side, count,
+		                             sector_size ? (uint32_t)*sector_size : 512u);
+	return ok;
+}
+
+bool __wrap_Floppy_WriteSectors(int drive, uint8_t *buffer,
+                               uint16_t sector, uint16_t track,
+                               uint16_t side, short count,
+                               int *sectors_per_track, int *sector_size)
+{
+	bool ok = __real_Floppy_WriteSectors(drive, buffer, sector, track, side,
+	                                    count, sectors_per_track, sector_size);
+	if (ok)
+		AtariAnalysis_RecordFloppyIO("write", drive, sector, track, side, count,
+		                             sector_size ? (uint32_t)*sector_size : 512u);
+	return ok;
 }
 #endif
