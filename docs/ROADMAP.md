@@ -17,6 +17,8 @@ Exit gate: repository contains project/safety/analysis contracts and upstream pr
 
 ## M1 — Analysis mode foundation
 
+Status: implemented and runtime-qualified.
+
 - add explicit AtariSandbox analysis-mode switch
 - create analysis output directory contract
 - emit versioned `session.json`
@@ -30,6 +32,8 @@ Exit gate: harmless EmuTOS boot produces valid deterministic evidence artifacts.
 
 ## M1.1 — GitHub runtime qualification
 
+Status: PASS on GitHub Actions with Hatari + EmuTOS 1.4.
+
 - Ubuntu GitHub Actions build
 - free EmuTOS runtime only
 - visible/Xvfb-compatible emulator execution as practical
@@ -41,11 +45,19 @@ Exit gate: green GitHub Actions runtime qualification with retained evidence.
 
 ## M2 — CPU and exception instrumentation
 
+Status: repository-side instrumentation foundation implemented; real EmuTOS CPU-evidence runtime qualification pending.
+
 - periodic 68000 register snapshots
 - PC/SR + D0-D7 + A0-A7
 - selected instruction trace mode with bounded output
 - exception/vector observations
 - watchdog and output-size limits
+- versioned `cpu.snapshot` and `cpu.exception` events
+- bounded Hatari trace adapter with fail-closed trace/event limits
+
+Repository-side gate: M2 parser/contract CI must pass, including full register snapshots, exception events and output bounds.
+
+Runtime exit gate: harmless EmuTOS boot produces real bounded CPU evidence while preserving M1.1 lifecycle and deny-by-default security settings.
 
 ## M3 — Atari OS/API observations
 
