@@ -49,9 +49,13 @@ void AtariAnalysis_RecordException(uint32_t exception_nr, int exception_source)
 
 	unix_ns = (uint64_t)time(NULL) * UINT64_C(1000000000);
 
+	/* Make SR current before serializing the passive snapshot. */
+	MakeSR();
+
 	fprintf(fp,
 	        "{\"schema\":\"atarisandbox.event/1\","
-	        "\"type\":\"cpu.exception\","
+	        "\"type\":\"cpu.exception.snapshot\","
+	        "\"source\":\"atarisandbox.cpu_core\","
 	        "\"unix_ns\":%" PRIu64 ","
 	        "\"exception_nr\":%" PRIu32 ","
 	        "\"exception_source\":%d,"
@@ -78,3 +82,19 @@ void AtariAnalysis_RecordException(uint32_t exception_nr, int exception_source)
 	fputs("]}\n", fp);
 	fflush(fp);
 }
+
+/*
+ * GNU/ELF link-time wrapping lets AtariSandbox observe the existing Hatari
+ * exception entry point without changing Hatari's exception semantics.
+ * Builds that do not enable the linker wrapper still compile the passive
+ * recorder, but never route normal Hatari execution through this function.
+ */
+#ifdef ATARISANDBOX_LD_WRAP_EXCEPTION
+extern void __real_M68000_Exception(uint32_t exception_nr, int exception_source);
+
+void __wrap_M68000_Exception(uint32_t exception_nr, int exception_source)
+{
+	AtariAnalysis_RecordException(exception_nr, exception_source);
+	__real_M68000_Exception(exception_nr, exception_source);
+}
+#endif
