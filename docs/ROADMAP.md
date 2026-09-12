@@ -45,7 +45,7 @@ Exit gate: green GitHub Actions runtime qualification with retained evidence.
 
 ## M2 — CPU and exception instrumentation
 
-Status: implemented and runtime-qualified through M2.1.
+Status: implemented and runtime-qualified through M2.2.
 
 - periodic 68000 register snapshots
 - PC/SR + D0-D7 + A0-A7
@@ -69,6 +69,19 @@ Status: PASS on GitHub Actions with real Hatari + EmuTOS runtime.
 - keep networking and host shared folders disabled
 
 Exit gate: harmless EmuTOS boot produces real CPU-core register evidence and structured exception evidence.
+
+## M2.2 — Bounded memory-write evidence
+
+Status: implemented; GitHub Actions gate requires bounded real runtime evidence.
+
+- emit versioned `memory.write` events from the emulator memory core
+- retain write address, value, size, PC/instruction PC and cycle context
+- cap retained memory-write evidence to a configured limit
+- require at least one real runtime memory-write event
+- preserve M2.1 CPU/exception and M1 lifecycle evidence
+- keep networking and host shared folders disabled
+
+Exit gate: harmless EmuTOS boot produces real memory-write evidence, with the CI qualification enforcing a 256-event upper bound.
 
 ## M3 — Atari OS/API observations
 
