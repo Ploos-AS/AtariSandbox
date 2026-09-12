@@ -8,6 +8,9 @@ import time
 from pathlib import Path
 
 EVENT_SCHEMA = "atarisandbox.event/1"
+DEFAULT_MAX_TRACE_BYTES = 16 * 1024 * 1024
+DEFAULT_MAX_EVENTS = 4096
+MAX_RAW_LINE = 4096
 
 # Hatari trace output is intentionally treated as an upstream diagnostic format.
 # Keep the parser permissive and preserve the original line in every emitted event.
@@ -22,7 +25,7 @@ def _hex(value: str | None) -> int | None:
 
 
 def parse_line(line: str) -> dict | None:
-    raw = line.rstrip("\n")
+    raw = line.rstrip("\n")[:MAX_RAW_LINE]
     if not raw:
         return None
 
@@ -67,27 +70,48 @@ def parse_line(line: str) -> dict | None:
     return None
 
 
-def convert(trace_path: Path, output_path: Path) -> tuple[int, int]:
+def convert(
+    trace_path: Path,
+    output_path: Path,
+    *,
+    max_trace_bytes: int = DEFAULT_MAX_TRACE_BYTES,
+    max_events: int = DEFAULT_MAX_EVENTS,
+) -> tuple[int, int, int]:
+    if max_trace_bytes < 1:
+        raise ValueError("max_trace_bytes must be positive")
+    if max_events < 1:
+        raise ValueError("max_events must be positive")
+
+    trace_size = trace_path.stat().st_size
+    if trace_size > max_trace_bytes:
+        raise ValueError(f"Hatari trace exceeds limit: {trace_size} > {max_trace_bytes}")
+
     snapshots = 0
     exceptions = 0
+    emitted = 0
     with trace_path.open("r", encoding="utf-8", errors="replace") as source, output_path.open("a", encoding="utf-8") as out:
         for line in source:
             event = parse_line(line)
             if not event:
                 continue
+            if emitted >= max_events:
+                raise ValueError(f"CPU trace event limit exceeded: {max_events}")
             if event["type"] == "cpu.snapshot":
                 snapshots += 1
             elif event["type"] == "cpu.exception":
                 exceptions += 1
             out.write(json.dumps(event, sort_keys=True) + "\n")
-    return snapshots, exceptions
+            emitted += 1
+    return snapshots, exceptions, emitted
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Convert Hatari CPU/exception trace into AtariSandbox JSONL events")
+    p = argparse.ArgumentParser(description="Convert Hatari CPU/exception trace into bounded AtariSandbox JSONL events")
     p.add_argument("--trace", required=True)
     p.add_argument("--events", required=True)
     p.add_argument("--require-snapshot", action="store_true")
+    p.add_argument("--max-trace-bytes", type=int, default=DEFAULT_MAX_TRACE_BYTES)
+    p.add_argument("--max-events", type=int, default=DEFAULT_MAX_EVENTS)
     args = p.parse_args()
 
     trace = Path(args.trace).resolve()
@@ -97,10 +121,23 @@ def main() -> int:
     if not events.is_file():
         raise SystemExit("AtariSandbox events file missing")
 
-    snapshots, exceptions = convert(trace, events)
+    try:
+        snapshots, exceptions, emitted = convert(
+            trace,
+            events,
+            max_trace_bytes=args.max_trace_bytes,
+            max_events=args.max_events,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
     if args.require_snapshot and snapshots < 1:
         raise SystemExit("no CPU snapshot found in Hatari trace")
-    print(json.dumps({"cpu_snapshots": snapshots, "cpu_exceptions": exceptions}, sort_keys=True))
+    print(json.dumps({
+        "cpu_snapshots": snapshots,
+        "cpu_exceptions": exceptions,
+        "events_emitted": emitted,
+    }, sort_keys=True))
     return 0
 
 
