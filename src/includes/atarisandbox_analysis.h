@@ -23,4 +23,14 @@ void AtariAnalysis_RecordException(uint32_t exception_nr, int exception_source);
  */
 void AtariAnalysis_RecordMemoryWrite(uint32_t address, uint32_t size, uint32_t value);
 
+/*
+ * Record successful sector-level floppy I/O.  Logging is disabled unless
+ * ATARISANDBOX_MEDIA_IO_LIMIT is a positive integer.  The boot-sector flag
+ * identifies writes that include track 0 / side 0 / sector 1.
+ */
+void AtariAnalysis_RecordFloppyIO(const char *operation, int drive,
+                                  uint16_t sector, uint16_t track,
+                                  uint16_t side, short count,
+                                  uint32_t sector_size);
+
 #endif /* ATARISANDBOX_ANALYSIS_H */
