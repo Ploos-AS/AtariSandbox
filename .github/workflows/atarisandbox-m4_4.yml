@@ -2,30 +2,24 @@ name: AtariSandbox M4.4
 
 on:
   push:
-    branches: [main]
-    paths:
-      - 'tools/qualify_m4_4.py'
-      - '.github/workflows/atarisandbox-m4_4.yml'
-      - 'docs/M4_4_VISUAL_MEMORY_EVIDENCE.md'
-      - 'docs/ROADMAP.md'
+    branches:
+      - main
   pull_request:
-    branches: [main]
-    paths:
-      - 'tools/qualify_m4_4.py'
-      - '.github/workflows/atarisandbox-m4_4.yml'
-      - 'docs/M4_4_VISUAL_MEMORY_EVIDENCE.md'
-      - 'docs/ROADMAP.md'
-  workflow_dispatch:
+    branches:
+      - main
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
 jobs:
   visual-memory-evidence:
+    name: M4.4 visual and memory evidence
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Install build/runtime dependencies
         run: |
@@ -74,11 +68,13 @@ jobs:
       - name: Validate M4.4 evidence
         run: |
           python3 - <<'PY'
-          import hashlib, json
+          import hashlib
+          import json
           from pathlib import Path
+
           p = Path('/tmp/atarisandbox-m4_4')
-          q = json.loads((p/'qualification-m4_4.json').read_text())
-          m = json.loads((p/'evidence-m4_4.json').read_text())
+          q = json.loads((p / 'qualification-m4_4.json').read_text())
+          m = json.loads((p / 'evidence-m4_4.json').read_text())
           assert q['schema'] == 'atarisandbox.m4_4.qualification/1'
           assert q['result'] == 'PASS'
           assert q['screenshot_captured'] is True
@@ -87,10 +83,11 @@ jobs:
           assert m['schema'] == 'atarisandbox.m4_4.evidence/1'
           assert m['object_count'] == 2
           assert {o['kind'] for o in m['objects']} == {'screenshot', 'memory_snapshot'}
-          for o in m['objects']:
-              f = p/o['path']
-              assert f.is_file() and f.stat().st_size == o['bytes']
-              assert hashlib.sha256(f.read_bytes()).hexdigest() == o['sha256']
+          for obj in m['objects']:
+              evidence = p / obj['path']
+              assert evidence.is_file()
+              assert evidence.stat().st_size == obj['bytes']
+              assert hashlib.sha256(evidence.read_bytes()).hexdigest() == obj['sha256']
           print('M4.4 visual/memory evidence PASS')
           PY
 
