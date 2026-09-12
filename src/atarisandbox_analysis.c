@@ -244,19 +244,27 @@ bool __wrap_Floppy_ReadSectors(int drive, uint8_t **buffer,
 		AtariAnalysis_RecordFloppyIO("read", drive, sector, track, side, count,
 		                             sector_size ? (uint32_t)*sector_size : 512u);
 		/* M4.3 CI-only probe: after the guest has really read its boot sector,
-		 * write a deterministic copy back through Hatari's real write path.
-		 * This is disabled unless explicitly enabled by the qualifier and only
-		 * touches the disposable runtime image supplied to that run. */
+		 * make one deterministic harmless byte change and pass that sector
+		 * through Hatari's real write path. The probe is disabled unless
+		 * explicitly enabled by the qualifier and only touches its disposable
+		 * runtime image. */
 		if (!ControlledWriteActive && AtariAnalysis_ControlledWriteEnabled() &&
 		    drive == 0 && track == 0 && side == 0 && sector == 1 &&
-		    buffer && *buffer) {
+		    buffer && *buffer && (!sector_size || *sector_size == 512)) {
+			uint8_t controlled_sector[512];
 			int write_spt = sectors_per_track ? *sectors_per_track : 0;
-			int write_size = sector_size ? *sector_size : 512;
+			int write_size = 512;
+			bool write_ok;
+
+			memcpy(controlled_sector, *buffer, sizeof(controlled_sector));
+			controlled_sector[2] ^= 0x01; /* OEM/reserved identity byte only */
 			ControlledWriteActive = 1;
-			(void)__real_Floppy_WriteSectors(drive, *buffer, 1, 0, 0, 1,
-			                                &write_spt, &write_size);
-			AtariAnalysis_RecordFloppyIO("write", drive, 1, 0, 0, 1,
-			                             (uint32_t)write_size);
+			write_ok = __real_Floppy_WriteSectors(drive, controlled_sector,
+			                                        1, 0, 0, 1,
+			                                        &write_spt, &write_size);
+			if (write_ok)
+				AtariAnalysis_RecordFloppyIO("write", drive, 1, 0, 0, 1,
+				                             (uint32_t)write_size);
 			ControlledWriteActive = 0;
 		}
 	}
