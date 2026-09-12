@@ -29,4 +29,18 @@ CI uses harmless EmuTOS only. Networking and writable host shared folders remain
 
 GitHub Actions must boot real Hatari + EmuTOS, capture a non-empty screenshot and memory-state object through Hatari's native runtime paths, verify their hashes and sizes against the manifest, and upload the complete evidence bundle.
 
-Status: implementation committed; GitHub Actions qualification pending.
+## Qualification result
+
+Status: **PASS**.
+
+- GitHub Actions workflow: `AtariSandbox M4.4`
+- run: `34720995579`
+- qualified commit: `db35a3de30dcac0951d75bfd9be9c697ce695c82`
+- build: PASS
+- EmuTOS runtime: PASS
+- screenshot capture: PASS
+- memory-state capture: PASS
+- evidence validation: PASS
+- evidence artifact upload: PASS
+
+M4.4 is runtime-qualified. The next roadmap milestone is M5 — ASW adapter.
