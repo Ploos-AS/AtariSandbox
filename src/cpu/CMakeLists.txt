@@ -65,7 +65,7 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang")
 		set(CPUEMU_CFLAGS "${CPUEMU_CFLAGS} -Wno-shadow=local")
 	endif()
 	check_c_compiler_flag(-Wunused-but-set-variable HAS_WUNUSED_BUT_SET_VAR)
-	if (HAS_WUNUSED_BUT_SET_VAR)
+	if(HAS_WUNUSED_BUT_SET_VAR)
 		set (CPUEMU_CFLAGS "${CPUEMU_CFLAGS} -Wno-unused-but-set-variable")
 	endif()
 	set_source_files_properties(${CPUEMU_SRCS}
@@ -88,7 +88,7 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang")
 	# The remaining warnings should be hidden for release builds:
 	if (CMAKE_BUILD_TYPE STREQUAL "Release")
 		set(CPUMAIN_CFLAGS "${CPUMAIN_CFLAGS} -Wno-bad-function-cast")
-		if (CMAKE_COMPILER_IS_GNUCC AND CMAKE_C_COMPILER_VERSION VERSION_GREATER 4.7)
+		if(CMAKE_COMPILER_IS_GNUCC AND CMAKE_C_COMPILER_VERSION VERSION_GREATER 4.7)
 			set(CPUMAIN_CFLAGS "${CPUMAIN_CFLAGS} -Wno-maybe-uninitialized")
 		endif()
 	endif()
@@ -96,8 +96,14 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang")
 		PROPERTIES COMPILE_FLAGS ${CPUMAIN_CFLAGS})
 endif()
 
+# AtariSandbox M2.2 keeps Hatari's public memory_put_* ABI while compiling
+# memory.c's implementations under private names. The wrapper below records
+# bounded guest write evidence, then delegates to the unchanged implementation.
+set_source_files_properties(memory.c PROPERTIES COMPILE_DEFINITIONS
+	"memory_put_long=AtariSandbox_real_memory_put_long;memory_put_word=AtariSandbox_real_memory_put_word;memory_put_byte=AtariSandbox_real_memory_put_byte")
+
 add_library(UaeCpu OBJECT ${CPUEMU_SRCS} ${WINUAE_SRCS} custom.c events.c
-			  memory.c hatari-glue.c)
+			  memory.c atarisandbox_memory.c hatari-glue.c)
 
 if(ENABLE_LIBRETRO)
 	set_target_properties(UaeCpu PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
