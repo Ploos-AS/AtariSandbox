@@ -26,6 +26,15 @@ def read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def wait_for_path(path: Path, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists():
+            return True
+        time.sleep(0.05)
+    return path.exists()
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="AtariSandbox M4.3 controlled guest floppy-write qualifier")
     p.add_argument("--analysis-dir", required=True)
@@ -56,6 +65,10 @@ def main() -> int:
         raise SystemExit("runtime media does not match source")
 
     log_path = analysis / "hatari.log"
+    fifo_path = analysis / "hatari-control.fifo"
+    if fifo_path.exists():
+        fifo_path.unlink()
+
     cmd = [
         str(hatari),
         "--machine", "st",
@@ -69,6 +82,7 @@ def main() -> int:
         "--confirm-quit", "off",
         "--window",
         "--statusbar", "off",
+        "--cmd-fifo", str(fifo_path),
         "--log-file", str(log_path),
     ]
 
@@ -77,17 +91,38 @@ def main() -> int:
     env["ATARISANDBOX_MEDIA_IO_LIMIT"] = "4096"
     env["ATARISANDBOX_M4_3_CONTROLLED_WRITE"] = "1"
     proc = subprocess.Popen(cmd, env=env, start_new_session=True)
+
+    if not wait_for_path(fifo_path, 5.0):
+        if proc.poll() is not None:
+            raise SystemExit(f"Hatari exited before control FIFO appeared, rc={proc.returncode}")
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait(timeout=5)
+        raise SystemExit("Hatari control FIFO was not created")
+
     time.sleep(args.runtime_seconds)
     if proc.poll() is not None:
         raise SystemExit(f"Hatari exited too early with rc={proc.returncode}")
 
-    proc.terminate()
+    # Use Hatari's own remote-control path for a normal application quit.
+    # This reaches Main_UnInit() -> Main_UnInitSubsystems() -> Floppy_UnInit(),
+    # which is required for changed ST media to be saved to the disposable copy.
+    with fifo_path.open("w", encoding="utf-8") as fifo:
+        fifo.write("hatari-shortcut quit\n")
+        fifo.flush()
+
     try:
-        proc.wait(timeout=7)
+        proc.wait(timeout=10)
     except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGKILL)
-        proc.wait(timeout=5)
-        raise SystemExit("Hatari did not terminate cleanly")
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=5)
+        raise SystemExit("Hatari did not exit through the graceful control-FIFO quit path")
+
+    if proc.returncode != 0:
+        raise SystemExit(f"Hatari graceful quit returned rc={proc.returncode}")
 
     events = read_jsonl(analysis / "core-events.jsonl")
     reads = [e for e in events if e.get("type") == "media.floppy.read"]
@@ -138,6 +173,7 @@ def main() -> int:
         "runtime_media_changed": True,
         "real_floppy_write_path": True,
         "boot_sector_classifier": True,
+        "graceful_shutdown": True,
         "result": "PASS",
     }
     (analysis / "qualification-m4_3.json").write_text(
