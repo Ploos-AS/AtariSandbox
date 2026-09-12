@@ -265,7 +265,7 @@ elseif(WIN32)
 	endif(NOT CMAKE_RC_COMPILER)
 	ENABLE_LANGUAGE(RC)
 	set(CMAKE_RC_COMPILE_OBJECT "<CMAKE_RC_COMPILER> <FLAGS> -Ocoff -o <OBJECT> <SOURCE>")
-	set_source_files_properties(${GUIWIN_RES} PROPERTIES LANGUAGE C)
+	set_source_files_properties(${GUIWIN_RES} PROPERTIES LANGUAGE RC)
 	add_executable(${APP_NAME} ${GUIWIN_RES} ${APP_TARGET_OBJECTS})
 
 #emscripten needs some em-specific linker flags
@@ -335,7 +335,7 @@ endif(ZLIB_FOUND)
 if(LibArchive_FOUND)
 	target_link_libraries(${APP_NAME} ${LibArchive_LIBRARIES})
 	if(ENABLE_LIBRETRO)
-		target_link_libraries(retro-hatari ${LibArchive_LIBRARIES})
+		target_link_libraries(retro-hatari ${LibArchive_LIBRARY})
 	endif(ENABLE_LIBRETRO)
 endif(LibArchive_FOUND)
 
