@@ -1,0 +1,79 @@
+name: AtariSandbox M4.1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/qualify_m4_1.py'
+      - '.github/workflows/atarisandbox-m4_1.yml'
+      - 'docs/M4_1_MEDIA_IDENTITY.md'
+      - 'docs/ROADMAP.md'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/qualify_m4_1.py'
+      - '.github/workflows/atarisandbox-m4_1.yml'
+      - 'docs/M4_1_MEDIA_IDENTITY.md'
+      - 'docs/ROADMAP.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  disposable-media-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create deterministic harmless test media
+        run: |
+          rm -rf /tmp/atarisandbox-m4_1
+          mkdir -p /tmp/atarisandbox-m4_1
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('/tmp/m4_1-source.st')
+          block = bytes(range(256))
+          with p.open('wb') as f:
+              for _ in range(720 * 1024 // len(block)):
+                  f.write(block)
+          assert p.stat().st_size == 720 * 1024
+          PY
+          sha256sum /tmp/m4_1-source.st
+
+      - name: Run M4.1 media qualification
+        run: |
+          python3 tools/qualify_m4_1.py \
+            --source-media /tmp/m4_1-source.st \
+            --analysis-dir /tmp/atarisandbox-m4_1 \
+            --backend-revision "$GITHUB_SHA"
+
+      - name: Validate M4.1 evidence
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('/tmp/atarisandbox-m4_1')
+          q = json.loads((p/'qualification-m4_1.json').read_text())
+          m = json.loads((p/'media.json').read_text())
+          assert q['schema'] == 'atarisandbox.m4_1.qualification/1'
+          assert q['result'] == 'PASS'
+          assert q['source_preserved'] is True
+          assert q['disposable_runtime_media'] is True
+          assert q['pre_post_sha256'] is True
+          assert m['schema'] == 'atarisandbox.media/1'
+          assert m['source']['sha256_pre'] == m['source']['sha256_post']
+          assert m['runtime']['sha256_pre'] != m['runtime']['sha256_post']
+          assert m['runtime']['disposable'] is True
+          assert m['runtime']['changed'] is True
+          print('M4.1 disposable media identity evidence PASS')
+          PY
+
+      - name: Upload M4.1 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atarisandbox-m4_1-media-evidence
+          path: /tmp/atarisandbox-m4_1
+          if-no-files-found: warn
