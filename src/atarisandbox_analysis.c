@@ -15,6 +15,11 @@
 
 static FILE *AnalysisEvents;
 static int AnalysisInitDone;
+static int MemoryConfigDone;
+static uint64_t MemoryWriteLimit;
+static uint64_t MemoryWriteCount;
+static uint32_t WatchStart;
+static uint32_t WatchEnd = UINT32_MAX;
 
 static FILE *AtariAnalysis_Open(void)
 {
@@ -36,6 +41,38 @@ static FILE *AtariAnalysis_Open(void)
 	if (AnalysisEvents)
 		setvbuf(AnalysisEvents, NULL, _IOLBF, 0);
 	return AnalysisEvents;
+}
+
+static void AtariAnalysis_LoadMemoryConfig(void)
+{
+	const char *value;
+	char *endptr;
+	unsigned long long parsed;
+
+	if (MemoryConfigDone)
+		return;
+	MemoryConfigDone = 1;
+
+	value = getenv("ATARISANDBOX_MEMORY_WRITE_LIMIT");
+	if (value && *value) {
+		parsed = strtoull(value, &endptr, 0);
+		if (*endptr == '\0')
+			MemoryWriteLimit = (uint64_t)parsed;
+	}
+
+	value = getenv("ATARISANDBOX_WATCH_START");
+	if (value && *value) {
+		parsed = strtoull(value, &endptr, 0);
+		if (*endptr == '\0' && parsed <= UINT32_MAX)
+			WatchStart = (uint32_t)parsed;
+	}
+
+	value = getenv("ATARISANDBOX_WATCH_END");
+	if (value && *value) {
+		parsed = strtoull(value, &endptr, 0);
+		if (*endptr == '\0' && parsed <= UINT32_MAX)
+			WatchEnd = (uint32_t)parsed;
+	}
 }
 
 void AtariAnalysis_RecordException(uint32_t exception_nr, int exception_source)
@@ -80,6 +117,46 @@ void AtariAnalysis_RecordException(uint32_t exception_nr, int exception_source)
 		fprintf(fp, "%s%" PRIu32, i == REG_A0 ? "" : ",", (uint32_t)Regs[i]);
 
 	fputs("]}\n", fp);
+	fflush(fp);
+}
+
+void AtariAnalysis_RecordMemoryWrite(uint32_t address, uint32_t size, uint32_t value)
+{
+	FILE *fp;
+	uint64_t unix_ns;
+
+	AtariAnalysis_LoadMemoryConfig();
+	if (!MemoryWriteLimit || MemoryWriteCount >= MemoryWriteLimit)
+		return;
+	if (address < WatchStart || address > WatchEnd)
+		return;
+	if (size > 1 && address > WatchEnd - (size - 1))
+		return;
+
+	fp = AtariAnalysis_Open();
+	if (!fp)
+		return;
+
+	MemoryWriteCount++;
+	unix_ns = (uint64_t)time(NULL) * UINT64_C(1000000000);
+	fprintf(fp,
+	        "{\"schema\":\"atarisandbox.event/1\","
+	        "\"type\":\"memory.write\","
+	        "\"source\":\"atarisandbox.memory_core\","
+	        "\"unix_ns\":%" PRIu64 ","
+	        "\"address\":%" PRIu32 ","
+	        "\"size\":%" PRIu32 ","
+	        "\"value\":%" PRIu32 ","
+	        "\"pc\":%" PRIu32 ","
+	        "\"instruction_pc\":%" PRIu32 ","
+	        "\"cycles\":%" PRIi64 "}\n",
+	        unix_ns,
+	        address,
+	        size,
+	        value,
+	        (uint32_t)M68000_GetPC(),
+	        (uint32_t)M68000_InstrPC,
+	        (int64_t)nCyclesMainCounter);
 	fflush(fp);
 }
 
