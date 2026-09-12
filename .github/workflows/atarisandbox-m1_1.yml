@@ -184,3 +184,86 @@ jobs:
           name: atarisandbox-m4_4-runtime-evidence
           path: /tmp/atarisandbox-m4_4
           if-no-files-found: warn
+
+  m5-asw-adapter:
+    name: M5 ASW adapter
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build/runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake build-essential pkg-config \
+            libsdl2-dev libsdl2-2.0-0 libpng-dev zlib1g-dev \
+            libreadline-dev portaudio19-dev libudev-dev \
+            xvfb curl unzip python3
+
+      - name: Build AtariSandbox
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          test -x build/src/hatari
+
+      - name: Fetch official EmuTOS 1.4 512 KiB ROM package
+        run: |
+          curl --fail --location --retry 3 --retry-all-errors \
+            --output /tmp/emutos.zip \
+            'https://sourceforge.net/projects/emutos/files/emutos/1.4/emutos-512k-1.4.zip/download'
+          rm -rf /tmp/emutos && mkdir -p /tmp/emutos
+          unzip -q /tmp/emutos.zip -d /tmp/emutos
+          ROM="$(find /tmp/emutos -type f -name 'etos512*.img' -print -quit)"
+          test -n "$ROM"
+          cp "$ROM" /tmp/emutos512k.img
+          test "$(stat -c %s /tmp/emutos512k.img)" -eq 524288
+
+      - name: Generate harmless M4.4 evidence
+        env:
+          SDL_AUDIODRIVER: dummy
+        run: |
+          rm -rf /tmp/atarisandbox-m5
+          mkdir -p /tmp/atarisandbox-m5
+          xvfb-run -a python3 tools/qualify_m4_4.py \
+            --analysis-dir /tmp/atarisandbox-m5 \
+            --hatari "$PWD/build/src/hatari" \
+            --rom /tmp/emutos512k.img \
+            --backend-revision "$GITHUB_SHA" \
+            --runtime-seconds 8
+
+      - name: Run M5 ASW adapter
+        run: |
+          python3 tools/atarisandbox_asw_adapter.py \
+            --analysis-dir /tmp/atarisandbox-m5
+
+      - name: Validate ASW ingestion manifest
+        run: |
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root = Path('/tmp/atarisandbox-m5')
+          m = json.loads((root/'asw-manifest.json').read_text())
+          assert m['schema'] == 'atarisandbox.asw-ingest/1'
+          assert m['producer'] == 'AtariSandbox'
+          assert m['network_enabled'] is False
+          assert m['host_shared_folders_enabled'] is False
+          assert 1 <= m['object_count'] <= 16
+          assert m['object_count'] == len(m['objects'])
+          src = root/m['source_evidence']
+          assert hashlib.sha256(src.read_bytes()).hexdigest() == m['source_evidence_sha256']
+          for obj in m['objects']:
+              p = root/obj['path']
+              assert p.is_file()
+              assert p.stat().st_size == obj['bytes']
+              assert hashlib.sha256(p.read_bytes()).hexdigest() == obj['sha256']
+          print('M5 ASW adapter PASS')
+          PY
+
+      - name: Upload M5 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atarisandbox-m5-asw-evidence
+          path: /tmp/atarisandbox-m5
+          if-no-files-found: warn
