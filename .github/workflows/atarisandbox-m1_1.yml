@@ -1,0 +1,78 @@
+name: AtariSandbox M1.1
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  emutos-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build/runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake build-essential pkg-config \
+            libsdl2-dev libsdl2-2.0-0 libpng-dev zlib1g-dev \
+            libreadline-dev portaudio19-dev libudev-dev \
+            xvfb curl unzip python3
+
+      - name: Build Hatari
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          test -x build/src/hatari
+          build/src/hatari --version
+
+      - name: Fetch official EmuTOS 1.4 binary package
+        run: |
+          curl -fL -o /tmp/emutos.zip \
+            https://sourceforge.net/projects/emutos/files/emutos/1.4/emutos-1.4-bin.zip/download
+          unzip -q /tmp/emutos.zip -d /tmp/emutos
+          ROM="$(find /tmp/emutos -type f \( -name 'etos512*.img' -o -name 'tos.img' \) | head -n1)"
+          test -n "$ROM"
+          test -s "$ROM"
+          cp "$ROM" /tmp/emutos512k.img
+          sha256sum /tmp/emutos512k.img
+
+      - name: Run real Hatari + EmuTOS qualification
+        env:
+          SDL_AUDIODRIVER: dummy
+        run: |
+          mkdir -p /tmp/atarisandbox-m1_1
+          xvfb-run -a python3 tools/qualify_m1_1.py \
+            --analysis-dir /tmp/atarisandbox-m1_1 \
+            --hatari "$PWD/build/src/hatari" \
+            --rom /tmp/emutos512k.img \
+            --backend-revision "$GITHUB_SHA" \
+            --runtime-seconds 8
+
+      - name: Validate evidence
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('/tmp/atarisandbox-m1_1')
+          q = json.loads((p/'qualification.json').read_text())
+          s = json.loads((p/'session.json').read_text())
+          assert q['schema'] == 'atarisandbox.m1_1.qualification/1'
+          assert q['result'] == 'PASS'
+          assert s['schema'] == 'atarisandbox.session/1'
+          assert s['machine_profile'] == 'st-emutos-ci'
+          assert (p/'events.jsonl').is_file()
+          assert (p/'emutos.sha256').is_file()
+          print('M1.1 evidence PASS')
+          PY
+
+      - name: Upload M1.1 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atarisandbox-m1_1-runtime-evidence
+          path: /tmp/atarisandbox-m1_1
+          if-no-files-found: error
