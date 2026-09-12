@@ -39,6 +39,7 @@ set(SOURCES
 	joy.c
 	lilo.c
 	m68000.c
+	atarisandbox_analysis.c
 	main.c
 	memorySnapShot.c
 	mfp.c
@@ -264,7 +265,7 @@ elseif(WIN32)
 	endif(NOT CMAKE_RC_COMPILER)
 	ENABLE_LANGUAGE(RC)
 	set(CMAKE_RC_COMPILE_OBJECT "<CMAKE_RC_COMPILER> <FLAGS> -Ocoff -o <OBJECT> <SOURCE>")
-	set_source_files_properties(${GUIWIN_RES} PROPERTIES LANGUAGE RC)
+	set_source_files_properties(${GUIWIN_RES} PROPERTIES LANGUAGE C)
 	add_executable(${APP_NAME} ${GUIWIN_RES} ${APP_TARGET_OBJECTS})
 
 #emscripten needs some em-specific linker flags
@@ -287,6 +288,14 @@ elseif(EMSCRIPTEN)
 else()
 	add_executable(${APP_NAME} ${APP_TARGET_OBJECTS})
 endif(ENABLE_OSX_BUNDLE)
+
+# AtariSandbox M2.1: passively wrap Hatari's exception entry point on
+# ELF/GNU-compatible Unix linkers.  Other platforms keep upstream semantics
+# and simply compile the recorder as a dormant no-op unless wired later.
+if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
+	target_compile_definitions(Core PRIVATE ATARISANDBOX_LD_WRAP_EXCEPTION=1)
+	set_property(TARGET ${APP_NAME} APPEND_STRING PROPERTY LINK_FLAGS " -Wl,--wrap=M68000_Exception")
+endif()
 
 if(SDL2_OTHER_CFLAGS)
 	target_compile_definitions(${APP_NAME} PRIVATE ${SDL2_OTHER_CFLAGS})
