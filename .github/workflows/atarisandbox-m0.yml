@@ -1,0 +1,20 @@
+name: AtariSandbox M0
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - README.md
+      - docs/**
+      - tools/check_atarisandbox_m0.py
+      - .github/workflows/atarisandbox-m0.yml
+  workflow_dispatch:
+
+jobs:
+  m0:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Run M0 qualification
+        run: python3 tools/check_atarisandbox_m0.py
