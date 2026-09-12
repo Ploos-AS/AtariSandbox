@@ -38,9 +38,9 @@ def validate_core_snapshot(event: dict) -> None:
     if event.get("schema") != "atarisandbox.event/1":
         raise SystemExit("unexpected core event schema")
     if event.get("type") != "cpu.exception.snapshot":
-        raise SystemExit("unexpected core event type")
+        raise SystemExit("unexpected core snapshot event type")
     if event.get("source") != "atarisandbox.cpu_core":
-        raise SystemExit("unexpected core event source")
+        raise SystemExit("unexpected core snapshot source")
     for key in ("exception_nr", "exception_source", "pc", "instruction_pc", "sr", "cycles"):
         if not isinstance(event.get(key), int):
             raise SystemExit(f"invalid core snapshot field: {key}")
@@ -52,14 +52,37 @@ def validate_core_snapshot(event: dict) -> None:
             raise SystemExit(f"invalid {bank.upper()} register value")
 
 
+def validate_memory_write(event: dict) -> None:
+    if event.get("schema") != "atarisandbox.event/1":
+        raise SystemExit("unexpected memory event schema")
+    if event.get("type") != "memory.write":
+        raise SystemExit("unexpected memory event type")
+    if event.get("source") != "atarisandbox.memory_core":
+        raise SystemExit("unexpected memory event source")
+    for key in ("address", "size", "value", "pc", "instruction_pc", "cycles"):
+        if not isinstance(event.get(key), int):
+            raise SystemExit(f"invalid memory.write field: {key}")
+    if event["size"] not in (1, 2, 4):
+        raise SystemExit("invalid memory.write size")
+    if not 0 <= event["address"] <= 0xFFFFFFFF:
+        raise SystemExit("invalid memory.write address")
+    max_value = (1 << (event["size"] * 8)) - 1
+    if not 0 <= event["value"] <= max_value:
+        raise SystemExit("memory.write value does not fit write size")
+
+
 def main() -> int:
-    p = argparse.ArgumentParser(description="AtariSandbox M2.1 real Hatari/EmuTOS runtime qualifier")
+    p = argparse.ArgumentParser(description="AtariSandbox M2.2 real Hatari/EmuTOS runtime qualifier")
     p.add_argument("--analysis-dir", required=True)
     p.add_argument("--hatari", required=True)
     p.add_argument("--rom", required=True)
     p.add_argument("--backend-revision", required=True)
     p.add_argument("--runtime-seconds", type=int, default=8)
+    p.add_argument("--memory-write-limit", type=int, default=256)
     args = p.parse_args()
+
+    if args.memory_write_limit <= 0:
+        raise SystemExit("memory write limit must be positive for M2.2 qualification")
 
     analysis = Path(args.analysis_dir).resolve()
     analysis.mkdir(parents=True, exist_ok=True)
@@ -102,6 +125,7 @@ def main() -> int:
     ] + cmd
 
     env = os.environ.copy()
+    env["ATARISANDBOX_MEMORY_WRITE_LIMIT"] = str(args.memory_write_limit)
     proc = subprocess.Popen(lifecycle_cmd, env=env, start_new_session=True)
     time.sleep(args.runtime_seconds)
     if proc.poll() is not None:
@@ -154,21 +178,36 @@ def main() -> int:
 
     core_path = analysis / "core-events.jsonl"
     if not core_path.is_file():
-        raise SystemExit("missing CPU core instrumentation evidence")
+        raise SystemExit("missing CPU/memory core instrumentation evidence")
     core_events = read_jsonl(core_path)
     if not core_events:
-        raise SystemExit("empty CPU core instrumentation evidence")
-    for event in core_events:
-        validate_core_snapshot(event)
+        raise SystemExit("empty CPU/memory core instrumentation evidence")
 
-    # ASW consumes one versioned evidence stream.  Preserve both native core
-    # snapshots and Hatari trace-derived vector details while retaining the
-    # raw source files verbatim beside it.
+    snapshot_events = [e for e in core_events if e.get("type") == "cpu.exception.snapshot"]
+    memory_events = [e for e in core_events if e.get("type") == "memory.write"]
+    unknown_core_events = [
+        e for e in core_events
+        if e.get("type") not in {"cpu.exception.snapshot", "memory.write"}
+    ]
+    if unknown_core_events:
+        raise SystemExit("unexpected core instrumentation event type")
+    if not snapshot_events:
+        raise SystemExit("missing CPU exception snapshots")
+    if not memory_events:
+        raise SystemExit("missing guest memory-write evidence")
+    if len(memory_events) > args.memory_write_limit:
+        raise SystemExit("memory-write evidence exceeded configured bound")
+
+    for event in snapshot_events:
+        validate_core_snapshot(event)
+    for event in memory_events:
+        validate_memory_write(event)
+
     unified_events = starts + core_events + trace_events + stops
     write_jsonl(events_path, unified_events)
 
     summary = {
-        "schema": "atarisandbox.m2_1.qualification/1",
+        "schema": "atarisandbox.m2_2.qualification/1",
         "backend_revision": args.backend_revision,
         "machine_profile": "st-emutos-ci",
         "rom_sha256": rom_sha,
@@ -176,7 +215,10 @@ def main() -> int:
         "network": "disabled",
         "host_shared_folders": "disabled",
         "cpu_exception_events": len(cpu_events),
-        "cpu_exception_snapshot_events": len(core_events),
+        "cpu_exception_snapshot_events": len(snapshot_events),
+        "memory_write_events": len(memory_events),
+        "memory_write_limit": args.memory_write_limit,
+        "memory_write_fields": ["address", "size", "value", "pc", "instruction_pc", "cycles"],
         "register_snapshot": {
             "data_registers": 8,
             "address_registers": 8,
@@ -191,9 +233,10 @@ def main() -> int:
         json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     print(
-        "M2.1 PASS: "
+        "M2.2 PASS: "
         f"{len(cpu_events)} trace exceptions, "
-        f"{len(core_events)} CPU-core register snapshots"
+        f"{len(snapshot_events)} CPU snapshots, "
+        f"{len(memory_events)} bounded memory writes"
     )
     return 0
 
