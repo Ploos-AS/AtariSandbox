@@ -1,4 +1,4 @@
-name: AtariSandbox M2.1
+name: AtariSandbox M2.2
 
 on:
   push:
@@ -46,56 +46,57 @@ jobs:
           test "$(stat -c %s /tmp/emutos512k.img)" -eq 524288
           sha256sum /tmp/emutos512k.img
 
-      - name: Run AtariSandbox M2.1 qualification
+      - name: Run AtariSandbox M2.2 qualification
         env:
           SDL_AUDIODRIVER: dummy
         run: |
-          rm -rf /tmp/atarisandbox-m2_1
-          mkdir -p /tmp/atarisandbox-m2_1
+          rm -rf /tmp/atarisandbox-m2_2
+          mkdir -p /tmp/atarisandbox-m2_2
           xvfb-run -a python3 tools/qualify_m1_1.py \
-            --analysis-dir /tmp/atarisandbox-m2_1 \
+            --analysis-dir /tmp/atarisandbox-m2_2 \
             --hatari "$PWD/build/src/hatari" \
             --rom /tmp/emutos512k.img \
             --backend-revision "$GITHUB_SHA" \
-            --runtime-seconds 8
+            --runtime-seconds 8 \
+            --memory-write-limit 256
 
-      - name: Validate M2.1 evidence
+      - name: Validate M2.2 evidence
         run: |
           python3 - <<'PY'
           import json
           from pathlib import Path
-          p = Path('/tmp/atarisandbox-m2_1')
+          p = Path('/tmp/atarisandbox-m2_2')
           q = json.loads((p/'qualification.json').read_text())
           s = json.loads((p/'session.json').read_text())
           events = [json.loads(line) for line in (p/'events.jsonl').read_text().splitlines() if line.strip()]
-          core = [e for e in events if e.get('type') == 'cpu.exception.snapshot']
+          snapshots = [e for e in events if e.get('type') == 'cpu.exception.snapshot']
           trace = [e for e in events if e.get('type') == 'cpu.exception']
-          assert q['schema'] == 'atarisandbox.m2_1.qualification/1'
+          writes = [e for e in events if e.get('type') == 'memory.write']
+          assert q['schema'] == 'atarisandbox.m2_2.qualification/1'
           assert q['result'] == 'PASS'
           assert q['cpu_exception_events'] > 0
           assert q['cpu_exception_snapshot_events'] > 0
+          assert 0 < q['memory_write_events'] <= q['memory_write_limit'] == 256
           assert s['schema'] == 'atarisandbox.session/1'
           assert s['machine_profile'] == 'st-emutos-ci'
-          assert trace
-          assert core
-          for e in core:
+          assert trace and snapshots and writes
+          for e in writes:
               assert e['schema'] == 'atarisandbox.event/1'
-              assert e['source'] == 'atarisandbox.cpu_core'
-              assert len(e['d']) == 8 and all(isinstance(v, int) for v in e['d'])
-              assert len(e['a']) == 8 and all(isinstance(v, int) for v in e['a'])
-              for key in ('pc', 'instruction_pc', 'sr', 'cycles', 'exception_nr'):
+              assert e['source'] == 'atarisandbox.memory_core'
+              assert e['size'] in (1, 2, 4)
+              for key in ('address', 'value', 'pc', 'instruction_pc', 'cycles'):
                   assert isinstance(e[key], int)
           assert (p/'core-events.jsonl').is_file()
           assert (p/'trace-events.jsonl').is_file()
           assert (p/'emutos.sha256').is_file()
           assert (p/'hatari-trace.log').is_file()
-          print('M2.1 CPU core register evidence PASS')
+          print(f"M2.2 bounded memory-write evidence PASS: {len(writes)} writes")
           PY
 
-      - name: Upload M2.1 evidence
+      - name: Upload M2.2 evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: atarisandbox-m2_1-runtime-evidence
-          path: /tmp/atarisandbox-m2_1
+          name: atarisandbox-m2_2-runtime-evidence
+          path: /tmp/atarisandbox-m2_2
           if-no-files-found: warn
