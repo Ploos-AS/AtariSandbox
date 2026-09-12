@@ -1,0 +1,44 @@
+name: AtariSandbox M1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/atarisandbox_run.py'
+      - 'tests/test_atarisandbox_m1.py'
+      - 'docs/M1_ANALYSIS_MODE.md'
+      - '.github/workflows/atarisandbox-m1.yml'
+  workflow_dispatch:
+
+jobs:
+  qualify-m1:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run M1 tests
+        run: python3 -m unittest -v tests/test_atarisandbox_m1.py
+      - name: Exercise harmless analysis run
+        run: |
+          rm -rf /tmp/atarisandbox-m1
+          python3 tools/atarisandbox_run.py \
+            --analysis-dir /tmp/atarisandbox-m1 \
+            --machine-profile st-emutos-ci \
+            --config-fingerprint github-actions-m1 \
+            --backend-revision "$GITHUB_SHA" \
+            -- python3 -c "print('AtariSandbox harmless M1 runtime')"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('/tmp/atarisandbox-m1')
+          s = json.loads((p/'session.json').read_text())
+          e = [json.loads(x) for x in (p/'events.jsonl').read_text().splitlines()]
+          assert s['completed'] is True
+          assert s['exit_code'] == 0
+          assert [x['type'] for x in e] == ['session.start', 'session.stop']
+          print('AtariSandbox M1 qualification: PASS')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: atarisandbox-m1-evidence
+          path: /tmp/atarisandbox-m1
+          retention-days: 14
