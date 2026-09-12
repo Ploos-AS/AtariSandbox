@@ -335,7 +335,7 @@ endif(ZLIB_FOUND)
 if(LibArchive_FOUND)
 	target_link_libraries(${APP_NAME} ${LibArchive_LIBRARIES})
 	if(ENABLE_LIBRETRO)
-		target_link_libraries(retro-hatari ${LibArchive_LIBRARY})
+		target_link_libraries(retro-hatari ${LibArchive_LIBRARIES})
 	endif(ENABLE_LIBRETRO)
 endif(LibArchive_FOUND)
 
