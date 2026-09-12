@@ -45,26 +45,55 @@ Exit gate: green GitHub Actions runtime qualification with retained evidence.
 
 ## M2 — CPU and exception instrumentation
 
-Status: repository-side instrumentation foundation implemented; real EmuTOS CPU-evidence runtime qualification pending.
+Status: implemented and runtime-qualified through M2.1.
 
 - periodic 68000 register snapshots
 - PC/SR + D0-D7 + A0-A7
 - selected instruction trace mode with bounded output
 - exception/vector observations
 - watchdog and output-size limits
-- versioned `cpu.snapshot` and `cpu.exception` events
+- versioned `cpu.snapshot` / CPU exception evidence
 - bounded Hatari trace adapter with fail-closed trace/event limits
 
-Repository-side gate: M2 parser/contract CI must pass, including full register snapshots, exception events and output bounds.
+Repository-side gate: PASS.
 
-Runtime exit gate: harmless EmuTOS boot produces real bounded CPU evidence while preserving M1.1 lifecycle and deny-by-default security settings.
+## M2.1 — Real CPU evidence runtime qualification
+
+Status: PASS on GitHub Actions with real Hatari + EmuTOS runtime.
+
+- preserve M1.1 lifecycle evidence
+- require native CPU-core register evidence
+- require D0-D7 + A0-A7, PC/instruction PC, SR and cycle fields
+- retain structured exception/vector evidence
+- merge bounded CPU evidence into the versioned evidence stream
+- keep networking and host shared folders disabled
+
+Exit gate: harmless EmuTOS boot produces real CPU-core register evidence and structured exception evidence.
 
 ## M3 — Atari OS/API observations
+
+Status: repository-side observation contract implemented; real EmuTOS OS-call runtime qualification pending.
 
 - GEMDOS calls
 - BIOS/XBIOS calls
 - process/program load/termination observations where practical
 - file/path operations where observable without broad host sharing
+- versioned `os.gemdos.call`, `os.bios.call`, and `os.xbios.call` evidence
+- process/filesystem classification where exposed by Hatari trace text
+- bounded trace input, bounded event count, bounded retained raw lines
+
+Repository-side gate: M3 parser/contract CI must pass against Hatari's supported OS trace classes.
+
+Runtime exit gate: a harmless real Hatari + EmuTOS run produces non-empty structured OS/API evidence while preserving M1/M2 security and lifecycle guarantees.
+
+## M3.1 — Real OS/API runtime qualification
+
+- enable bounded Hatari `gemdos`, `bios`, and `xbios` traces
+- run the existing harmless EmuTOS CI profile
+- convert actual Hatari trace output into structured events
+- require real GEMDOS evidence
+- retain raw trace for provenance
+- preserve CPU/lifecycle evidence and deny-by-default settings
 
 ## M4 — Media and persistence evidence
 
