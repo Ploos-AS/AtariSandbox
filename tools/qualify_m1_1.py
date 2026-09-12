@@ -72,18 +72,25 @@ def main() -> int:
     if proc.poll() is not None:
         raise SystemExit(f"Hatari exited too early with rc={proc.returncode}")
 
-    os.killpg(proc.pid, signal.SIGTERM)
+    # Stop only the runner. Its SIGTERM handler owns child shutdown and must be
+    # allowed to write session.stop and the completed session record.
+    proc.terminate()
     try:
-        proc.wait(timeout=5)
+        proc.wait(timeout=7)
     except subprocess.TimeoutExpired:
+        # Last resort for a wedged lifecycle. At this point evidence should not
+        # be considered qualified because the orderly stop contract failed.
         os.killpg(proc.pid, signal.SIGKILL)
         proc.wait(timeout=5)
+        raise SystemExit("AtariSandbox runner did not terminate cleanly")
 
     session = json.loads((analysis / "session.json").read_text(encoding="utf-8"))
     if session.get("schema") != "atarisandbox.session/1":
         raise SystemExit("unexpected session schema")
     if session.get("machine_profile") != "st-emutos-ci":
         raise SystemExit("unexpected machine profile")
+    if session.get("completed") is not True:
+        raise SystemExit("session did not complete cleanly")
     events = [json.loads(line) for line in (analysis / "events.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
     if [e.get("type") for e in events[:1]] != ["session.start"]:
         raise SystemExit("missing session.start")
