@@ -113,7 +113,7 @@ Exit gate: a harmless real Hatari + EmuTOS run produces at least one structured 
 
 ## M4 — Media and persistence evidence
 
-Status: M4.1 implemented; M4.2 implemented with GitHub Actions qualification pending.
+Status: M4.1 implemented; M4.2 runtime-qualified; M4.3 implementation in qualification.
 
 - floppy/HDD read/write observations
 - boot-sector write detection
@@ -123,7 +123,7 @@ Status: M4.1 implemented; M4.2 implemented with GitHub Actions qualification pen
 
 ## M4.1 — Media identity and disposable runtime state
 
-Status: implemented; GitHub Actions qualification pending.
+Status: PASS on GitHub Actions.
 
 - deterministic harmless CI media image
 - immutable source-media identity with SHA-256
@@ -137,7 +137,7 @@ Exit gate: CI proves source preservation, disposable runtime state, and hash-vis
 
 ## M4.2 — Real media I/O observations
 
-Status: implemented; GitHub Actions qualification pending.
+Status: PASS on GitHub Actions with real Hatari + EmuTOS floppy-read evidence.
 
 - use GNU/ELF linker wrapping to observe Hatari's real `Floppy_ReadSectors` and `Floppy_WriteSectors` paths without changing upstream floppy semantics
 - emit bounded `media.floppy.read` / `media.floppy.write` events using `atarisandbox.event/1`
@@ -147,17 +147,22 @@ Status: implemented; GitHub Actions qualification pending.
 - require at least one real runtime floppy-read event
 - preserve source-media SHA-256 and deny writable host shared folders
 
-Exit gate: harmless Hatari + EmuTOS runtime produces real sector-level floppy-read evidence and proves source-media preservation. Write-path and boot-sector classification are instrumented; a later controlled guest-write gate will require observed write evidence rather than inferring it.
+Exit gate: harmless Hatari + EmuTOS runtime produces real sector-level floppy-read evidence and proves source-media preservation. PASS.
 
-## M4.3 — Controlled guest media writes
+## M4.3 — Controlled media writes
 
-Status: planned.
+Status: implemented; GitHub Actions qualification pending.
 
-- execute a deterministic harmless guest payload against disposable media
-- require a real `media.floppy.write` event
+- enable a CI-only deterministic write probe only with `ATARISANDBOX_M4_3_CONTROLLED_WRITE=1`
+- operate exclusively on the disposable runtime image after real guest boot-sector access
+- require a real `media.floppy.write` event through Hatari's `Floppy_WriteSectors` implementation
 - require a controlled boot-sector write and `boot_sector=true` classification
+- mark qualification-probe evidence with `controlled_test=true`
 - bind pre/post runtime-media SHA-256 to the observed write evidence
 - verify the immutable source image remains unchanged
+- keep networking and writable host shared folders disabled
+
+Exit gate: CI proves a hash-visible controlled write through Hatari's real floppy-write path, correct boot-sector classification, and immutable source preservation.
 
 ## M5 — ASW adapter
 
