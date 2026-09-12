@@ -25,6 +25,7 @@ static int MediaConfigDone;
 static uint64_t MediaIOLimit;
 static uint64_t MediaIOCount;
 static int ControlledWriteActive;
+static int ControlledWriteDone;
 
 static FILE *AtariAnalysis_Open(void)
 {
@@ -247,8 +248,10 @@ bool __wrap_Floppy_ReadSectors(int drive, uint8_t **buffer,
 		 * make one deterministic harmless byte change and pass that sector
 		 * through Hatari's real write path. The probe is disabled unless
 		 * explicitly enabled by the qualifier and only touches its disposable
-		 * runtime image. */
-		if (!ControlledWriteActive && AtariAnalysis_ControlledWriteEnabled() &&
+		 * runtime image. The write is one-shot so repeated boot-sector reads
+		 * cannot XOR the probe byte back to its original value. */
+		if (!ControlledWriteDone && !ControlledWriteActive &&
+		    AtariAnalysis_ControlledWriteEnabled() &&
 		    drive == 0 && track == 0 && side == 0 && sector == 1 &&
 		    buffer && *buffer && (!sector_size || *sector_size == 512)) {
 			uint8_t controlled_sector[512];
@@ -262,9 +265,11 @@ bool __wrap_Floppy_ReadSectors(int drive, uint8_t **buffer,
 			write_ok = __real_Floppy_WriteSectors(drive, controlled_sector,
 			                                        1, 0, 0, 1,
 			                                        &write_spt, &write_size);
-			if (write_ok)
+			if (write_ok) {
+				ControlledWriteDone = 1;
 				AtariAnalysis_RecordFloppyIO("write", drive, 1, 0, 0, 1,
 				                             (uint32_t)write_size);
+			}
 			ControlledWriteActive = 0;
 		}
 	}
