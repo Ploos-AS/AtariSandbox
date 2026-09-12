@@ -1,0 +1,135 @@
+name: AtariSandbox M4.2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/atarisandbox_analysis.c'
+      - 'src/includes/atarisandbox_analysis.h'
+      - 'tools/qualify_m4_2.py'
+      - '.github/workflows/atarisandbox-m4_2.yml'
+      - 'docs/M4_2_REAL_MEDIA_IO.md'
+      - 'docs/ROADMAP.md'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/atarisandbox_analysis.c'
+      - 'src/includes/atarisandbox_analysis.h'
+      - 'tools/qualify_m4_2.py'
+      - '.github/workflows/atarisandbox-m4_2.yml'
+      - 'docs/M4_2_REAL_MEDIA_IO.md'
+      - 'docs/ROADMAP.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  emutos-real-floppy-io:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build/runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake build-essential pkg-config \
+            libsdl2-dev libsdl2-2.0-0 libpng-dev zlib1g-dev \
+            libreadline-dev portaudio19-dev libudev-dev \
+            xvfb curl unzip python3
+
+      - name: Build AtariSandbox with real floppy wrappers
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_FLAGS='-DATARISANDBOX_LD_WRAP_FLOPPY=1' \
+            -DCMAKE_EXE_LINKER_FLAGS='-Wl,--wrap=Floppy_ReadSectors -Wl,--wrap=Floppy_WriteSectors'
+          cmake --build build -j2
+          test -x build/src/hatari
+          build/src/hatari --version
+
+      - name: Fetch official EmuTOS 1.4 512 KiB ROM package
+        run: |
+          EMUTOS_URL='https://sourceforge.net/projects/emutos/files/emutos/1.4/emutos-512k-1.4.zip/download'
+          curl --fail --location --retry 3 --retry-all-errors \
+            --output /tmp/emutos.zip "$EMUTOS_URL"
+          unzip -t /tmp/emutos.zip
+          rm -rf /tmp/emutos
+          mkdir -p /tmp/emutos
+          unzip -q /tmp/emutos.zip -d /tmp/emutos
+          ROM="$(find /tmp/emutos -type f -name 'etos512*.img' -print -quit)"
+          test -n "$ROM"
+          cp "$ROM" /tmp/emutos512k.img
+          test "$(stat -c %s /tmp/emutos512k.img)" -eq 524288
+          sha256sum /tmp/emutos512k.img
+
+      - name: Create deterministic harmless 720 KiB ST floppy
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('/tmp/m4_2-source.st')
+          img = bytearray(720 * 1024)
+          bs = memoryview(img)[:512]
+          bs[0:2] = b'\x60\x1c'
+          bs[2:8] = b'M4.2  '
+          bs[11:13] = (512).to_bytes(2, 'little')
+          bs[13] = 2
+          bs[14:16] = (1).to_bytes(2, 'little')
+          bs[16] = 2
+          bs[17:19] = (112).to_bytes(2, 'little')
+          bs[19:21] = (1440).to_bytes(2, 'little')
+          bs[21] = 0xF9
+          bs[22:24] = (3).to_bytes(2, 'little')
+          bs[24:26] = (9).to_bytes(2, 'little')
+          bs[26:28] = (2).to_bytes(2, 'little')
+          img[512:515] = b'\xF9\xFF\xFF'
+          img[2048:2051] = b'\xF9\xFF\xFF'
+          p.write_bytes(img)
+          assert p.stat().st_size == 737280
+          PY
+          sha256sum /tmp/m4_2-source.st
+
+      - name: Run AtariSandbox M4.2 qualification
+        env:
+          SDL_AUDIODRIVER: dummy
+        run: |
+          rm -rf /tmp/atarisandbox-m4_2
+          mkdir -p /tmp/atarisandbox-m4_2
+          xvfb-run -a python3 tools/qualify_m4_2.py \
+            --analysis-dir /tmp/atarisandbox-m4_2 \
+            --hatari "$PWD/build/src/hatari" \
+            --rom /tmp/emutos512k.img \
+            --source-media /tmp/m4_2-source.st \
+            --backend-revision "$GITHUB_SHA" \
+            --runtime-seconds 8
+
+      - name: Validate M4.2 evidence
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('/tmp/atarisandbox-m4_2')
+          q = json.loads((p/'qualification-m4_2.json').read_text())
+          events = [json.loads(line) for line in (p/'core-events.jsonl').read_text().splitlines() if line.strip()]
+          assert q['schema'] == 'atarisandbox.m4_2.qualification/1'
+          assert q['result'] == 'PASS'
+          assert q['source_preserved'] is True
+          assert q['real_floppy_read_path'] is True
+          assert q['write_path_instrumented'] is True
+          assert q['boot_sector_classifier'] is True
+          assert q['read_events'] > 0
+          reads = [e for e in events if e.get('type') == 'media.floppy.read']
+          assert reads
+          assert all(e.get('schema') == 'atarisandbox.event/1' for e in reads)
+          assert all(e.get('source') == 'atarisandbox.floppy_core' for e in reads)
+          print('M4.2 real floppy I/O evidence PASS')
+          PY
+
+      - name: Upload M4.2 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atarisandbox-m4_2-runtime-evidence
+          path: /tmp/atarisandbox-m4_2
+          if-no-files-found: warn
