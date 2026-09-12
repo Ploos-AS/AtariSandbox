@@ -90,6 +90,8 @@ def main() -> int:
     parser.add_argument("--max-trace-bytes", type=int, default=DEFAULT_MAX_TRACE_BYTES)
     parser.add_argument("--max-events", type=int, default=DEFAULT_MAX_EVENTS)
     parser.add_argument("--require-gemdos", action="store_true")
+    parser.add_argument("--require-bios", action="store_true")
+    parser.add_argument("--require-xbios", action="store_true")
     args = parser.parse_args()
 
     if not args.trace.is_file():
@@ -98,8 +100,14 @@ def main() -> int:
         raise SystemExit("limits must be positive")
 
     counts = convert(args.trace, args.events, args.max_trace_bytes, args.max_events)
-    if args.require_gemdos and counts["gemdos"] < 1:
-        raise SystemExit("no GEMDOS events found")
+    required = {
+        "gemdos": args.require_gemdos,
+        "bios": args.require_bios,
+        "xbios": args.require_xbios,
+    }
+    for api, enabled in required.items():
+        if enabled and counts[api] < 1:
+            raise SystemExit(f"no {api.upper()} events found")
     print(json.dumps(counts, sort_keys=True))
     return 0
 
