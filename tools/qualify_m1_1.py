@@ -20,7 +20,7 @@ def sha256_file(path: Path) -> str:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="AtariSandbox M1.1 real Hatari/EmuTOS runtime qualifier")
+    p = argparse.ArgumentParser(description="AtariSandbox M1.1/M2 real Hatari/EmuTOS runtime qualifier")
     p.add_argument("--analysis-dir", required=True)
     p.add_argument("--hatari", required=True)
     p.add_argument("--rom", required=True)
@@ -40,6 +40,7 @@ def main() -> int:
     rom_sha = sha256_file(rom)
     (analysis / "emutos.sha256").write_text(f"{rom_sha}  {rom.name}\n", encoding="utf-8")
     log_path = analysis / "hatari.log"
+    trace_path = analysis / "hatari-trace.log"
 
     cmd = [
         str(hatari),
@@ -53,7 +54,8 @@ def main() -> int:
         "--window",
         "--statusbar", "off",
         "--log-file", str(log_path),
-        "--trace-file", str(analysis / "hatari-trace.log"),
+        "--trace-file", str(trace_path),
+        "--trace", "cpu_exception",
     ]
 
     runner = Path(__file__).with_name("atarisandbox_run.py")
@@ -91,24 +93,52 @@ def main() -> int:
         raise SystemExit("unexpected machine profile")
     if session.get("completed") is not True:
         raise SystemExit("session did not complete cleanly")
-    events = [json.loads(line) for line in (analysis / "events.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    converter = Path(__file__).with_name("atarisandbox_trace_to_events.py")
+    subprocess.run(
+        [
+            os.environ.get("PYTHON", "python3"),
+            str(converter),
+            "--trace", str(trace_path),
+            "--events", str(analysis / "events.jsonl"),
+            "--require-events",
+        ],
+        check=True,
+    )
+
+    events = [
+        json.loads(line)
+        for line in (analysis / "events.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
     if [e.get("type") for e in events[:1]] != ["session.start"]:
         raise SystemExit("missing session.start")
     if not any(e.get("type") == "session.stop" for e in events):
         raise SystemExit("missing session.stop")
 
+    cpu_events = [e for e in events if e.get("type") == "cpu.exception"]
+    if not cpu_events:
+        raise SystemExit("missing structured cpu.exception evidence")
+    for event in cpu_events:
+        for key in ("exception_nr", "pc", "instruction_pc", "vector_target", "sr"):
+            if not isinstance(event.get(key), int):
+                raise SystemExit(f"invalid cpu.exception field: {key}")
+
     summary = {
-        "schema": "atarisandbox.m1_1.qualification/1",
+        "schema": "atarisandbox.m2.qualification/1",
         "backend_revision": args.backend_revision,
         "machine_profile": "st-emutos-ci",
         "rom_sha256": rom_sha,
         "runtime_seconds": args.runtime_seconds,
         "network": "disabled",
         "host_shared_folders": "disabled",
+        "cpu_exception_events": len(cpu_events),
         "result": "PASS",
     }
-    (analysis / "qualification.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print("M1.1 PASS")
+    (analysis / "qualification.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print(f"M2 PASS: {len(cpu_events)} structured cpu.exception events")
     return 0
 
 
