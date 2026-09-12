@@ -72,7 +72,7 @@ Exit gate: harmless EmuTOS boot produces real CPU-core register evidence and str
 
 ## M2.2 — Bounded memory-write evidence
 
-Status: implemented; GitHub Actions gate requires bounded real runtime evidence.
+Status: PASS on GitHub Actions with bounded real runtime evidence.
 
 - emit versioned `memory.write` events from the emulator memory core
 - retain write address, value, size, PC/instruction PC and cycle context
@@ -85,7 +85,7 @@ Exit gate: harmless EmuTOS boot produces real memory-write evidence, with the CI
 
 ## M3 — Atari OS/API observations
 
-Status: repository-side observation contract PASS; M3.1 real runtime qualification in progress.
+Status: implemented and runtime-qualified through M3.1.
 
 - GEMDOS calls
 - BIOS/XBIOS calls
@@ -99,7 +99,7 @@ Repository-side gate: PASS.
 
 ## M3.1 — Real OS/API runtime qualification
 
-Status: implemented; GitHub Actions qualification pending.
+Status: PASS on GitHub Actions with real Hatari + EmuTOS runtime.
 
 - enable bounded Hatari `gemdos`, `bios`, and `xbios` traces
 - run the existing harmless EmuTOS CI profile
@@ -109,15 +109,40 @@ Status: implemented; GitHub Actions qualification pending.
 - preserve lifecycle evidence and deny-by-default settings
 - retain ROM SHA-256 and backend revision in qualification evidence
 
-Exit gate: a harmless real Hatari + EmuTOS run produces at least one structured event for each required OS API class and uploads the complete evidence bundle.
+Exit gate: a harmless real Hatari + EmuTOS run produces at least one structured event for each required OS API class and uploads the complete evidence bundle. PASS.
 
 ## M4 — Media and persistence evidence
+
+Status: M4.1 implemented; GitHub Actions qualification pending.
 
 - floppy/HDD read/write observations
 - boot-sector write detection
 - pre/post media SHA-256
 - disposable media overlays/images
 - screenshot capture and selected memory snapshots
+
+## M4.1 — Media identity and disposable runtime state
+
+Status: implemented; GitHub Actions qualification pending.
+
+- deterministic harmless CI media image
+- immutable source-media identity with SHA-256
+- disposable runtime media copy
+- pre/post SHA-256 for runtime media
+- verify controlled changes cannot alter source media
+- versioned `atarisandbox.media/1` evidence
+- versioned `atarisandbox.m4_1.qualification/1` verdict
+
+Exit gate: CI proves source preservation, disposable runtime state, and hash-visible controlled runtime-media change.
+
+## M4.2 — Real media I/O observations
+
+Status: planned.
+
+- connect Hatari floppy/HDD read/write activity to structured evidence
+- classify writes touching boot-sector regions
+- bind I/O events to M4.1 media identity
+- retain bounded evidence and deny-by-default host access
 
 ## M5 — ASW adapter
 
