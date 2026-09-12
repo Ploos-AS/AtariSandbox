@@ -24,6 +24,7 @@ static uint32_t WatchEnd = UINT32_MAX;
 static int MediaConfigDone;
 static uint64_t MediaIOLimit;
 static uint64_t MediaIOCount;
+static int ControlledWriteActive;
 
 static FILE *AtariAnalysis_Open(void)
 {
@@ -94,6 +95,12 @@ static void AtariAnalysis_LoadMediaConfig(void)
 		if (*endptr == '\0')
 			MediaIOLimit = (uint64_t)parsed;
 	}
+}
+
+static int AtariAnalysis_ControlledWriteEnabled(void)
+{
+	const char *value = getenv("ATARISANDBOX_M4_3_CONTROLLED_WRITE");
+	return value && strcmp(value, "1") == 0;
 }
 
 void AtariAnalysis_RecordException(uint32_t exception_nr, int exception_source)
@@ -198,10 +205,11 @@ void AtariAnalysis_RecordFloppyIO(const char *operation, int drive,
 	        "\"unix_ns\":%" PRIu64 ","
 	        "\"drive\":%d,\"track\":%u,\"side\":%u,\"sector\":%u,"
 	        "\"count\":%" PRIu32 ",\"sector_size\":%" PRIu32 ","
-	        "\"boot_sector\":%s}\n",
+	        "\"boot_sector\":%s,\"controlled_test\":%s}\n",
 	        operation ? operation : "unknown", unix_ns, drive,
 	        (unsigned int)track, (unsigned int)side, (unsigned int)sector,
-	        sectors, sector_size, boot_sector ? "true" : "false");
+	        sectors, sector_size, boot_sector ? "true" : "false",
+	        ControlledWriteActive ? "true" : "false");
 	fflush(fp);
 }
 
@@ -232,9 +240,26 @@ bool __wrap_Floppy_ReadSectors(int drive, uint8_t **buffer,
 {
 	bool ok = __real_Floppy_ReadSectors(drive, buffer, sector, track, side,
 	                                   count, sectors_per_track, sector_size);
-	if (ok)
+	if (ok) {
 		AtariAnalysis_RecordFloppyIO("read", drive, sector, track, side, count,
 		                             sector_size ? (uint32_t)*sector_size : 512u);
+		/* M4.3 CI-only probe: after the guest has really read its boot sector,
+		 * write a deterministic copy back through Hatari's real write path.
+		 * This is disabled unless explicitly enabled by the qualifier and only
+		 * touches the disposable runtime image supplied to that run. */
+		if (!ControlledWriteActive && AtariAnalysis_ControlledWriteEnabled() &&
+		    drive == 0 && track == 0 && side == 0 && sector == 1 &&
+		    buffer && *buffer) {
+			int write_spt = sectors_per_track ? *sectors_per_track : 0;
+			int write_size = sector_size ? *sector_size : 512;
+			ControlledWriteActive = 1;
+			(void)__real_Floppy_WriteSectors(drive, *buffer, 1, 0, 0, 1,
+			                                &write_spt, &write_size);
+			AtariAnalysis_RecordFloppyIO("write", drive, 1, 0, 0, 1,
+			                             (uint32_t)write_size);
+			ControlledWriteActive = 0;
+		}
+	}
 	return ok;
 }
 
