@@ -72,7 +72,7 @@ Exit gate: harmless EmuTOS boot produces real CPU-core register evidence and str
 
 ## M3 — Atari OS/API observations
 
-Status: repository-side observation contract implemented; real EmuTOS OS-call runtime qualification pending.
+Status: repository-side observation contract PASS; M3.1 real runtime qualification in progress.
 
 - GEMDOS calls
 - BIOS/XBIOS calls
@@ -82,18 +82,21 @@ Status: repository-side observation contract implemented; real EmuTOS OS-call ru
 - process/filesystem classification where exposed by Hatari trace text
 - bounded trace input, bounded event count, bounded retained raw lines
 
-Repository-side gate: M3 parser/contract CI must pass against Hatari's supported OS trace classes.
-
-Runtime exit gate: a harmless real Hatari + EmuTOS run produces non-empty structured OS/API evidence while preserving M1/M2 security and lifecycle guarantees.
+Repository-side gate: PASS.
 
 ## M3.1 — Real OS/API runtime qualification
+
+Status: implemented; GitHub Actions qualification pending.
 
 - enable bounded Hatari `gemdos`, `bios`, and `xbios` traces
 - run the existing harmless EmuTOS CI profile
 - convert actual Hatari trace output into structured events
-- require real GEMDOS evidence
+- require real GEMDOS, BIOS and XBIOS evidence
 - retain raw trace for provenance
-- preserve CPU/lifecycle evidence and deny-by-default settings
+- preserve lifecycle evidence and deny-by-default settings
+- retain ROM SHA-256 and backend revision in qualification evidence
+
+Exit gate: a harmless real Hatari + EmuTOS run produces at least one structured event for each required OS API class and uploads the complete evidence bundle.
 
 ## M4 — Media and persistence evidence
 
