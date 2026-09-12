@@ -1,0 +1,62 @@
+name: AtariSandbox M2
+
+on:
+  push:
+    paths:
+      - 'tools/atarisandbox_trace_events.py'
+      - 'tests/test_atarisandbox_m2.py'
+      - 'docs/M2_CPU_EXCEPTION_INSTRUMENTATION.md'
+      - 'src/debug/log.c'
+      - '.github/workflows/atarisandbox-m2.yml'
+  pull_request:
+    paths:
+      - 'tools/atarisandbox_trace_events.py'
+      - 'tests/test_atarisandbox_m2.py'
+      - 'docs/M2_CPU_EXCEPTION_INSTRUMENTATION.md'
+      - 'src/debug/log.c'
+      - '.github/workflows/atarisandbox-m2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-instrumentation-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify required Hatari CPU trace classes
+        run: |
+          grep -q '"cpu_regs"' src/debug/log.c
+          grep -q '"cpu_disasm"' src/debug/log.c
+          grep -q '"cpu_exception"' src/debug/log.c
+
+      - name: Run AtariSandbox M2 tests
+        run: python3 -m unittest -v tests/test_atarisandbox_m2.py
+
+      - name: Exercise bounded converter CLI
+        run: |
+          tmp="$(mktemp -d)"
+          printf '%s\n' \
+            'PC=$00fc1234 SR=$2700 D0=$00000001 D1=$00000002 D2=$00000003 D3=$00000004 D4=$00000005 D5=$00000006 D6=$00000007 D7=$00000008 A0=$00000100 A1=$00000200 A2=$00000300 A3=$00000400 A4=$00000500 A5=$00000600 A6=$00000700 A7=$00000800' \
+            'CPU exception vector 4 PC=$00fc2000 SR=$2000 D0=$deadbeef' \
+            > "$tmp/trace.log"
+          : > "$tmp/events.jsonl"
+          python3 tools/atarisandbox_trace_events.py \
+            --trace "$tmp/trace.log" \
+            --events "$tmp/events.jsonl" \
+            --require-snapshot \
+            --max-trace-bytes 65536 \
+            --max-events 32
+          python3 - "$tmp/events.jsonl" <<'PY'
+          import json, sys
+          events = [json.loads(line) for line in open(sys.argv[1], encoding='utf-8') if line.strip()]
+          assert [e['type'] for e in events] == ['cpu.snapshot', 'cpu.exception']
+          snap = events[0]
+          assert snap['pc'] == 0x00fc1234
+          assert snap['sr'] == 0x2700
+          assert len(snap['registers']) == 16
+          assert events[1]['vector'] == 4
+          print('M2 repository qualification PASS')
+          PY
