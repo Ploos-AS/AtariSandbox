@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -69,12 +70,44 @@ def main():
     env["ATARISANDBOX_MACHINE_PROFILE"] = args.machine_profile
     env["ATARISANDBOX_CONFIG_FINGERPRINT"] = args.config_fingerprint
 
+    child = None
     rc = 127
+    shutdown_signal = None
+
+    def request_shutdown(signum, _frame):
+        nonlocal shutdown_signal
+        shutdown_signal = signum
+        if child is not None and child.poll() is None:
+            child.terminate()
+
+    old_term = signal.signal(signal.SIGTERM, request_shutdown)
+    old_int = signal.signal(signal.SIGINT, request_shutdown)
     try:
-        proc = subprocess.run(args.command, env=env, check=False)
-        rc = proc.returncode
+        child = subprocess.Popen(args.command, env=env)
+        try:
+            rc = child.wait()
+        except KeyboardInterrupt:
+            request_shutdown(signal.SIGINT, None)
+            try:
+                rc = child.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                rc = child.wait(timeout=5)
+
+        if shutdown_signal is not None and rc < 0:
+            rc = 128 + shutdown_signal
         return rc
     finally:
+        if child is not None and child.poll() is None:
+            child.terminate()
+            try:
+                child.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait(timeout=5)
+        signal.signal(signal.SIGTERM, old_term)
+        signal.signal(signal.SIGINT, old_int)
+
         stop = time.time_ns()
         append_event(events_path, {
             "schema": EVENT_SCHEMA,
