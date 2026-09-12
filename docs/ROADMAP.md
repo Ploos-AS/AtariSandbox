@@ -113,7 +113,7 @@ Exit gate: a harmless real Hatari + EmuTOS run produces at least one structured 
 
 ## M4 — Media and persistence evidence
 
-Status: M4.1 implemented; GitHub Actions qualification pending.
+Status: M4.1 implemented; M4.2 implemented with GitHub Actions qualification pending.
 
 - floppy/HDD read/write observations
 - boot-sector write detection
@@ -137,12 +137,27 @@ Exit gate: CI proves source preservation, disposable runtime state, and hash-vis
 
 ## M4.2 — Real media I/O observations
 
+Status: implemented; GitHub Actions qualification pending.
+
+- use GNU/ELF linker wrapping to observe Hatari's real `Floppy_ReadSectors` and `Floppy_WriteSectors` paths without changing upstream floppy semantics
+- emit bounded `media.floppy.read` / `media.floppy.write` events using `atarisandbox.event/1`
+- retain drive, track, side, sector, count and sector-size evidence
+- classify writes beginning at track 0 / side 0 / sector 1 as boot-sector writes
+- boot real Hatari + EmuTOS with deterministic harmless disposable ST media in CI
+- require at least one real runtime floppy-read event
+- preserve source-media SHA-256 and deny writable host shared folders
+
+Exit gate: harmless Hatari + EmuTOS runtime produces real sector-level floppy-read evidence and proves source-media preservation. Write-path and boot-sector classification are instrumented; a later controlled guest-write gate will require observed write evidence rather than inferring it.
+
+## M4.3 — Controlled guest media writes
+
 Status: planned.
 
-- connect Hatari floppy/HDD read/write activity to structured evidence
-- classify writes touching boot-sector regions
-- bind I/O events to M4.1 media identity
-- retain bounded evidence and deny-by-default host access
+- execute a deterministic harmless guest payload against disposable media
+- require a real `media.floppy.write` event
+- require a controlled boot-sector write and `boot_sector=true` classification
+- bind pre/post runtime-media SHA-256 to the observed write evidence
+- verify the immutable source image remains unchanged
 
 ## M5 — ASW adapter
 
