@@ -1,0 +1,67 @@
+name: AtariSandbox M3
+
+on:
+  push:
+    paths:
+      - 'tools/atarisandbox_os_trace_events.py'
+      - 'tests/test_atarisandbox_m3.py'
+      - 'docs/M3_ATARI_OS_API_OBSERVATIONS.md'
+      - 'docs/ROADMAP.md'
+      - 'src/debug/log.c'
+      - '.github/workflows/atarisandbox-m3.yml'
+  pull_request:
+    paths:
+      - 'tools/atarisandbox_os_trace_events.py'
+      - 'tests/test_atarisandbox_m3.py'
+      - 'docs/M3_ATARI_OS_API_OBSERVATIONS.md'
+      - 'docs/ROADMAP.md'
+      - 'src/debug/log.c'
+      - '.github/workflows/atarisandbox-m3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  os-api-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify required Hatari OS trace classes
+        run: |
+          grep -q '"gemdos"' src/debug/log.c
+          grep -q '"bios"' src/debug/log.c
+          grep -q '"xbios"' src/debug/log.c
+
+      - name: Run AtariSandbox M3 tests
+        run: python3 -m unittest -v tests/test_atarisandbox_m3.py
+
+      - name: Exercise bounded OS trace converter
+        run: |
+          tmp="$(mktemp -d)"
+          printf '%s\n' \
+            'GEMDOS call=$4b Pexec("C:\\HELLO.PRG")' \
+            'GEMDOS function=61 Fopen("A:\\README.TXT")' \
+            'BIOS #=0x03 Bconout(2,65)' \
+            'XBIOS call=2 Physbase()' \
+            > "$tmp/trace.log"
+          : > "$tmp/events.jsonl"
+          python3 tools/atarisandbox_os_trace_events.py \
+            --trace "$tmp/trace.log" \
+            --events "$tmp/events.jsonl" \
+            --require-gemdos \
+            --max-trace-bytes 65536 \
+            --max-events 32
+          python3 - "$tmp/events.jsonl" <<'PY'
+          import json, sys
+          events = [json.loads(line) for line in open(sys.argv[1], encoding='utf-8') if line.strip()]
+          assert len(events) == 4
+          assert [event['type'] for event in events] == [
+              'os.gemdos.call', 'os.gemdos.call', 'os.bios.call', 'os.xbios.call'
+          ]
+          assert events[0]['call_name'] == 'Pexec'
+          assert events[0]['operation_class'] == 'process'
+          assert events[1]['operation_class'] == 'filesystem'
+          print('M3 repository qualification PASS')
+          PY
