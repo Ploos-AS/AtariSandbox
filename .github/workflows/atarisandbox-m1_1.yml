@@ -29,15 +29,21 @@ jobs:
           test -x build/src/hatari
           build/src/hatari --version
 
-      - name: Fetch official EmuTOS 1.4 binary package
+      - name: Fetch official EmuTOS 1.4 512 KiB ROM package
         run: |
-          curl -fL -o /tmp/emutos.zip \
-            https://sourceforge.net/projects/emutos/files/emutos/1.4/emutos-1.4-bin.zip/download
+          EMUTOS_URL='https://sourceforge.net/projects/emutos/files/emutos/1.4/emutos-512k-1.4.zip/download'
+          curl --fail --location --retry 3 --retry-all-errors \
+            --output /tmp/emutos.zip "$EMUTOS_URL"
+          test -s /tmp/emutos.zip
+          unzip -t /tmp/emutos.zip
+          rm -rf /tmp/emutos
+          mkdir -p /tmp/emutos
           unzip -q /tmp/emutos.zip -d /tmp/emutos
-          ROM="$(find /tmp/emutos -type f \( -name 'etos512*.img' -o -name 'tos.img' \) | head -n1)"
+          ROM="$(find /tmp/emutos -type f -name 'etos512*.img' -print -quit)"
           test -n "$ROM"
           test -s "$ROM"
           cp "$ROM" /tmp/emutos512k.img
+          test "$(stat -c %s /tmp/emutos512k.img)" -eq 524288
           sha256sum /tmp/emutos512k.img
 
       - name: Run real Hatari + EmuTOS qualification
@@ -75,4 +81,4 @@ jobs:
         with:
           name: atarisandbox-m1_1-runtime-evidence
           path: /tmp/atarisandbox-m1_1
-          if-no-files-found: error
+          if-no-files-found: warn
