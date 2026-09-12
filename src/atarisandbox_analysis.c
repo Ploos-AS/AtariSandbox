@@ -20,6 +20,9 @@ static uint64_t MemoryWriteLimit;
 static uint64_t MemoryWriteCount;
 static uint32_t WatchStart;
 static uint32_t WatchEnd = UINT32_MAX;
+static int MediaConfigDone;
+static uint64_t MediaIOLimit;
+static uint64_t MediaIOCount;
 
 static FILE *AtariAnalysis_Open(void)
 {
@@ -75,6 +78,23 @@ static void AtariAnalysis_LoadMemoryConfig(void)
 	}
 }
 
+static void AtariAnalysis_LoadMediaConfig(void)
+{
+	const char *value;
+	char *endptr;
+	unsigned long long parsed;
+
+	if (MediaConfigDone)
+		return;
+	MediaConfigDone = 1;
+	value = getenv("ATARISANDBOX_MEDIA_IO_LIMIT");
+	if (value && *value) {
+		parsed = strtoull(value, &endptr, 0);
+		if (*endptr == '\0')
+			MediaIOLimit = (uint64_t)parsed;
+	}
+}
+
 void AtariAnalysis_RecordException(uint32_t exception_nr, int exception_source)
 {
 	FILE *fp = AtariAnalysis_Open();
@@ -85,8 +105,6 @@ void AtariAnalysis_RecordException(uint32_t exception_nr, int exception_source)
 		return;
 
 	unix_ns = (uint64_t)time(NULL) * UINT64_C(1000000000);
-
-	/* Make SR current before serializing the passive snapshot. */
 	MakeSR();
 
 	fprintf(fp,
@@ -101,21 +119,15 @@ void AtariAnalysis_RecordException(uint32_t exception_nr, int exception_source)
 	        "\"sr\":%u,"
 	        "\"cycles\":%" PRIi64 ","
 	        "\"d\":[",
-	        unix_ns,
-	        exception_nr,
-	        exception_source,
-	        (uint32_t)M68000_GetPC(),
-	        (uint32_t)M68000_InstrPC,
-	        (unsigned int)regs.sr,
-	        (int64_t)nCyclesMainCounter);
+	        unix_ns, exception_nr, exception_source,
+	        (uint32_t)M68000_GetPC(), (uint32_t)M68000_InstrPC,
+	        (unsigned int)regs.sr, (int64_t)nCyclesMainCounter);
 
 	for (i = REG_D0; i <= REG_D7; i++)
 		fprintf(fp, "%s%" PRIu32, i == REG_D0 ? "" : ",", (uint32_t)Regs[i]);
-
 	fputs("],\"a\":[", fp);
 	for (i = REG_A0; i <= REG_A7; i++)
 		fprintf(fp, "%s%" PRIu32, i == REG_A0 ? "" : ",", (uint32_t)Regs[i]);
-
 	fputs("]}\n", fp);
 	fflush(fp);
 }
@@ -150,22 +162,48 @@ void AtariAnalysis_RecordMemoryWrite(uint32_t address, uint32_t size, uint32_t v
 	        "\"pc\":%" PRIu32 ","
 	        "\"instruction_pc\":%" PRIu32 ","
 	        "\"cycles\":%" PRIi64 "}\n",
-	        unix_ns,
-	        address,
-	        size,
-	        value,
-	        (uint32_t)M68000_GetPC(),
-	        (uint32_t)M68000_InstrPC,
+	        unix_ns, address, size, value,
+	        (uint32_t)M68000_GetPC(), (uint32_t)M68000_InstrPC,
 	        (int64_t)nCyclesMainCounter);
 	fflush(fp);
 }
 
-/*
- * GNU/ELF link-time wrapping lets AtariSandbox observe the existing Hatari
- * exception entry point without changing Hatari's exception semantics.
- * Builds that do not enable the linker wrapper still compile the passive
- * recorder, but never route normal Hatari execution through this function.
- */
+void AtariAnalysis_RecordFloppyIO(const char *operation, int drive,
+                                  uint16_t sector, uint16_t track,
+                                  uint16_t side, short count,
+                                  uint32_t sector_size)
+{
+	FILE *fp;
+	uint64_t unix_ns;
+	uint32_t sectors;
+	int boot_sector;
+
+	AtariAnalysis_LoadMediaConfig();
+	if (!MediaIOLimit || MediaIOCount >= MediaIOLimit)
+		return;
+	fp = AtariAnalysis_Open();
+	if (!fp)
+		return;
+
+	MediaIOCount++;
+	sectors = count < 0 ? 0 : (uint32_t)count;
+	boot_sector = operation && strcmp(operation, "write") == 0 &&
+	              track == 0 && side == 0 && sector == 1;
+	unix_ns = (uint64_t)time(NULL) * UINT64_C(1000000000);
+	fprintf(fp,
+	        "{\"schema\":\"atarisandbox.event/1\","
+	        "\"type\":\"media.floppy.%s\","
+	        "\"source\":\"atarisandbox.floppy_core\","
+	        "\"unix_ns\":%" PRIu64 ","
+	        "\"drive\":%d,\"track\":%u,\"side\":%u,\"sector\":%u,"
+	        "\"count\":%" PRIu32 ",\"sector_size\":%" PRIu32 ","
+	        "\"boot_sector\":%s}\n",
+	        operation ? operation : "unknown", unix_ns, drive,
+	        (unsigned int)track, (unsigned int)side, (unsigned int)sector,
+	        sectors, sector_size, boot_sector ? "true" : "false");
+	fflush(fp);
+}
+
 #ifdef ATARISANDBOX_LD_WRAP_EXCEPTION
 extern void __real_M68000_Exception(uint32_t exception_nr, int exception_source);
 
