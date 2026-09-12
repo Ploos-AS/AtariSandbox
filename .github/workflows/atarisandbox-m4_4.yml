@@ -1,0 +1,103 @@
+name: AtariSandbox M4.4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/qualify_m4_4.py'
+      - '.github/workflows/atarisandbox-m4_4.yml'
+      - 'docs/M4_4_VISUAL_MEMORY_EVIDENCE.md'
+      - 'docs/ROADMAP.md'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/qualify_m4_4.py'
+      - '.github/workflows/atarisandbox-m4_4.yml'
+      - 'docs/M4_4_VISUAL_MEMORY_EVIDENCE.md'
+      - 'docs/ROADMAP.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  visual-memory-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build/runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake build-essential pkg-config \
+            libsdl2-dev libsdl2-2.0-0 libpng-dev zlib1g-dev \
+            libreadline-dev portaudio19-dev libudev-dev \
+            xvfb curl unzip python3
+
+      - name: Build AtariSandbox
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          test -x build/src/hatari
+          build/src/hatari --version
+
+      - name: Fetch official EmuTOS 1.4 512 KiB ROM package
+        run: |
+          EMUTOS_URL='https://sourceforge.net/projects/emutos/files/emutos/1.4/emutos-512k-1.4.zip/download'
+          curl --fail --location --retry 3 --retry-all-errors \
+            --output /tmp/emutos.zip "$EMUTOS_URL"
+          unzip -t /tmp/emutos.zip
+          rm -rf /tmp/emutos
+          mkdir -p /tmp/emutos
+          unzip -q /tmp/emutos.zip -d /tmp/emutos
+          ROM="$(find /tmp/emutos -type f -name 'etos512*.img' -print -quit)"
+          test -n "$ROM"
+          cp "$ROM" /tmp/emutos512k.img
+          test "$(stat -c %s /tmp/emutos512k.img)" -eq 524288
+          sha256sum /tmp/emutos512k.img
+
+      - name: Run AtariSandbox M4.4 qualification
+        env:
+          SDL_AUDIODRIVER: dummy
+        run: |
+          rm -rf /tmp/atarisandbox-m4_4
+          mkdir -p /tmp/atarisandbox-m4_4
+          xvfb-run -a python3 tools/qualify_m4_4.py \
+            --analysis-dir /tmp/atarisandbox-m4_4 \
+            --hatari "$PWD/build/src/hatari" \
+            --rom /tmp/emutos512k.img \
+            --backend-revision "$GITHUB_SHA" \
+            --runtime-seconds 8
+
+      - name: Validate M4.4 evidence
+        run: |
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          p = Path('/tmp/atarisandbox-m4_4')
+          q = json.loads((p/'qualification-m4_4.json').read_text())
+          m = json.loads((p/'evidence-m4_4.json').read_text())
+          assert q['schema'] == 'atarisandbox.m4_4.qualification/1'
+          assert q['result'] == 'PASS'
+          assert q['screenshot_captured'] is True
+          assert q['memory_snapshot_captured'] is True
+          assert q['analysis_directory_only'] is True
+          assert m['schema'] == 'atarisandbox.m4_4.evidence/1'
+          assert m['object_count'] == 2
+          assert {o['kind'] for o in m['objects']} == {'screenshot', 'memory_snapshot'}
+          for o in m['objects']:
+              f = p/o['path']
+              assert f.is_file() and f.stat().st_size == o['bytes']
+              assert hashlib.sha256(f.read_bytes()).hexdigest() == o['sha256']
+          print('M4.4 visual/memory evidence PASS')
+          PY
+
+      - name: Upload M4.4 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atarisandbox-m4_4-runtime-evidence
+          path: /tmp/atarisandbox-m4_4
+          if-no-files-found: warn
