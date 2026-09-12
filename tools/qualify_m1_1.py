@@ -19,8 +19,41 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def read_jsonl(path: Path) -> list[dict]:
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def write_jsonl(path: Path, events: list[dict]) -> None:
+    path.write_text(
+        "".join(json.dumps(event, sort_keys=True) + "\n" for event in events),
+        encoding="utf-8",
+    )
+
+
+def validate_core_snapshot(event: dict) -> None:
+    if event.get("schema") != "atarisandbox.event/1":
+        raise SystemExit("unexpected core event schema")
+    if event.get("type") != "cpu.exception.snapshot":
+        raise SystemExit("unexpected core event type")
+    if event.get("source") != "atarisandbox.cpu_core":
+        raise SystemExit("unexpected core event source")
+    for key in ("exception_nr", "exception_source", "pc", "instruction_pc", "sr", "cycles"):
+        if not isinstance(event.get(key), int):
+            raise SystemExit(f"invalid core snapshot field: {key}")
+    for bank in ("d", "a"):
+        values = event.get(bank)
+        if not isinstance(values, list) or len(values) != 8:
+            raise SystemExit(f"invalid {bank.upper()} register bank")
+        if not all(isinstance(value, int) and 0 <= value <= 0xFFFFFFFF for value in values):
+            raise SystemExit(f"invalid {bank.upper()} register value")
+
+
 def main() -> int:
-    p = argparse.ArgumentParser(description="AtariSandbox M1.1/M2 real Hatari/EmuTOS runtime qualifier")
+    p = argparse.ArgumentParser(description="AtariSandbox M2.1 real Hatari/EmuTOS runtime qualifier")
     p.add_argument("--analysis-dir", required=True)
     p.add_argument("--hatari", required=True)
     p.add_argument("--rom", required=True)
@@ -74,14 +107,10 @@ def main() -> int:
     if proc.poll() is not None:
         raise SystemExit(f"Hatari exited too early with rc={proc.returncode}")
 
-    # Stop only the runner. Its SIGTERM handler owns child shutdown and must be
-    # allowed to write session.stop and the completed session record.
     proc.terminate()
     try:
         proc.wait(timeout=7)
     except subprocess.TimeoutExpired:
-        # Last resort for a wedged lifecycle. At this point evidence should not
-        # be considered qualified because the orderly stop contract failed.
         os.killpg(proc.pid, signal.SIGKILL)
         proc.wait(timeout=5)
         raise SystemExit("AtariSandbox runner did not terminate cleanly")
@@ -94,29 +123,28 @@ def main() -> int:
     if session.get("completed") is not True:
         raise SystemExit("session did not complete cleanly")
 
+    events_path = analysis / "events.jsonl"
+    lifecycle_events = read_jsonl(events_path)
+    starts = [e for e in lifecycle_events if e.get("type") == "session.start"]
+    stops = [e for e in lifecycle_events if e.get("type") == "session.stop"]
+    if len(starts) != 1 or len(stops) != 1:
+        raise SystemExit("invalid lifecycle evidence")
+
     converter = Path(__file__).with_name("atarisandbox_trace_to_events.py")
+    trace_events_path = analysis / "trace-events.jsonl"
     subprocess.run(
         [
             os.environ.get("PYTHON", "python3"),
             str(converter),
             "--trace", str(trace_path),
-            "--events", str(analysis / "events.jsonl"),
+            "--events", str(trace_events_path),
             "--require-events",
         ],
         check=True,
     )
 
-    events = [
-        json.loads(line)
-        for line in (analysis / "events.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    if [e.get("type") for e in events[:1]] != ["session.start"]:
-        raise SystemExit("missing session.start")
-    if not any(e.get("type") == "session.stop" for e in events):
-        raise SystemExit("missing session.stop")
-
-    cpu_events = [e for e in events if e.get("type") == "cpu.exception"]
+    trace_events = read_jsonl(trace_events_path)
+    cpu_events = [e for e in trace_events if e.get("type") == "cpu.exception"]
     if not cpu_events:
         raise SystemExit("missing structured cpu.exception evidence")
     for event in cpu_events:
@@ -124,8 +152,23 @@ def main() -> int:
             if not isinstance(event.get(key), int):
                 raise SystemExit(f"invalid cpu.exception field: {key}")
 
+    core_path = analysis / "core-events.jsonl"
+    if not core_path.is_file():
+        raise SystemExit("missing CPU core instrumentation evidence")
+    core_events = read_jsonl(core_path)
+    if not core_events:
+        raise SystemExit("empty CPU core instrumentation evidence")
+    for event in core_events:
+        validate_core_snapshot(event)
+
+    # ASW consumes one versioned evidence stream.  Preserve both native core
+    # snapshots and Hatari trace-derived vector details while retaining the
+    # raw source files verbatim beside it.
+    unified_events = starts + core_events + trace_events + stops
+    write_jsonl(events_path, unified_events)
+
     summary = {
-        "schema": "atarisandbox.m2.qualification/1",
+        "schema": "atarisandbox.m2_1.qualification/1",
         "backend_revision": args.backend_revision,
         "machine_profile": "st-emutos-ci",
         "rom_sha256": rom_sha,
@@ -133,12 +176,25 @@ def main() -> int:
         "network": "disabled",
         "host_shared_folders": "disabled",
         "cpu_exception_events": len(cpu_events),
+        "cpu_exception_snapshot_events": len(core_events),
+        "register_snapshot": {
+            "data_registers": 8,
+            "address_registers": 8,
+            "pc": True,
+            "instruction_pc": True,
+            "sr": True,
+            "cycles": True,
+        },
         "result": "PASS",
     }
     (analysis / "qualification.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    print(f"M2 PASS: {len(cpu_events)} structured cpu.exception events")
+    print(
+        "M2.1 PASS: "
+        f"{len(cpu_events)} trace exceptions, "
+        f"{len(core_events)} CPU-core register snapshots"
+    )
     return 0
 
 
