@@ -113,7 +113,7 @@ Exit gate: a harmless real Hatari + EmuTOS run produces at least one structured 
 
 ## M4 — Media and persistence evidence
 
-Status: runtime-qualified through M4.3; M4.4 next.
+Status: runtime-qualified through M4.4.
 
 - floppy/HDD read/write observations
 - boot-sector write detection
@@ -167,7 +167,7 @@ Exit gate: CI proves a hash-visible controlled write through Hatari's real flopp
 
 ## M4.4 — Runtime visual and memory evidence
 
-Status: planned; next implementation milestone.
+Status: PASS on GitHub Actions run `34720995579` at commit `db35a3de30dcac0951d75bfd9be9c697ce695c82`.
 
 - deterministic screenshot capture from the harmless EmuTOS runtime
 - bounded selected memory snapshot(s)
@@ -176,17 +176,23 @@ Status: planned; next implementation milestone.
 - strict size/count limits and analysis-directory-only output
 - retain deny-by-default networking and host-share policy
 
-Exit gate: CI captures and validates deterministic visual and bounded memory evidence from a harmless Hatari + EmuTOS runtime and uploads a hash-bound evidence bundle.
+Exit gate: CI captures and validates deterministic visual and bounded memory evidence from a harmless Hatari + EmuTOS runtime and uploads a hash-bound evidence bundle. PASS.
 
 ## M5 — ASW adapter
 
+Status: PASS on GitHub Actions run `34730495915` at commit `9e162c39eff8bafb5a1c7b1f682c04b5d51f2758`.
+
 - AtariSandbox machine-profile mapping
-- ASW-owned runner/evidence ingestion adapter
+- ASW ingestion-boundary manifest
 - hash-bound runtime manifest
 - artifact size/type/path validation
-- cross-platform namespace enforcement
+- deny-by-default policy normalization
+
+Exit gate: harmless M4.4 evidence passes the M5 adapter, independent ASW-manifest/hash validation and artifact upload. PASS.
 
 ## M6 — Cross-repo harmless E2E
+
+Status: next implementation milestone.
 
 - ASW checkout
 - AtariSandbox checkout/build
@@ -194,6 +200,8 @@ Exit gate: CI captures and validates deterministic visual and bounded memory evi
 - evidence generation
 - ASW ingestion and hash verification
 - evidence artifact upload
+
+Exit gate: one GitHub Actions run crosses the real AtariSandbox and ASW repositories, boots harmless EmuTOS, generates AtariSandbox evidence, validates/ingests it through ASW-owned code and uploads the hash-bound cross-repo evidence bundle.
 
 ## M7 — Physical workstation qualification
 
