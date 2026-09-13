@@ -39,12 +39,20 @@ def main() -> None:
         fail("unsupported evidence schema")
     if qualification.get("schema") != "atarisandbox.m4_4.qualification/1" or qualification.get("result") != "PASS":
         fail("M4.4 qualification is not PASS")
-    if evidence.get("network_enabled") is not False or evidence.get("host_shared_folders_enabled") is not False:
+
+    # M4.4 represents deny-by-default runtime policy with explicit string
+    # states. Require the exact qualified contract instead of translating it
+    # to synthetic boolean fields that M4.4 never emitted.
+    if evidence.get("network") != "disabled" or evidence.get("host_shared_folders") != "disabled":
         fail("unsafe runtime policy in evidence")
+    if qualification.get("network") != "disabled" or qualification.get("host_shared_folders") != "disabled":
+        fail("unsafe runtime policy in qualification")
 
     objects = evidence.get("objects")
     if not isinstance(objects, list) or not (1 <= len(objects) <= MAX_OBJECTS):
         fail("invalid object count")
+    if evidence.get("object_count") != len(objects):
+        fail("evidence object_count mismatch")
 
     out_objects = []
     seen = set()
@@ -73,13 +81,13 @@ def main() -> None:
     manifest = {
         "schema": "atarisandbox.asw-ingest/1",
         "producer": "AtariSandbox",
-        "machine_profile": evidence.get("profile"),
+        "machine_profile": evidence.get("machine_profile"),
         "backend_revision": evidence.get("backend_revision"),
         "rom_sha256": evidence.get("rom_sha256"),
         "source_evidence": "evidence-m4_4.json",
         "source_evidence_sha256": source_manifest_sha256,
-        "network_enabled": False,
-        "host_shared_folders_enabled": False,
+        "network": "disabled",
+        "host_shared_folders": "disabled",
         "object_count": len(out_objects),
         "objects": out_objects,
     }
