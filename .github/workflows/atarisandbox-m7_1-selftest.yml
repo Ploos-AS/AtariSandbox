@@ -1,0 +1,107 @@
+name: AtariSandbox M7.1 Collector Self-Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/qualify_m7_1.py'
+      - '.github/workflows/atarisandbox-m7_1-selftest.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/qualify_m7_1.py'
+      - '.github/workflows/atarisandbox-m7_1-selftest.yml'
+  workflow_dispatch:
+
+jobs:
+  collector-selftest:
+    name: M7.1 collector harmless self-test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create harmless synthetic qualification inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/m7_1-selftest
+          mkdir -p /tmp/m7_1-selftest/evidence /tmp/m7_1-selftest/out
+          printf 'synthetic-rom-not-for-emulation\n' > /tmp/m7_1-selftest/rom.bin
+          printf 'immutable-source-media\n' > /tmp/m7_1-selftest/source.st
+          printf '{"schema":"atarisandbox.session/1","selftest":true}\n' > /tmp/m7_1-selftest/evidence/session.json
+          printf '{"schema":"atarisandbox.event/1","type":"selftest"}\n' > /tmp/m7_1-selftest/evidence/events.jsonl
+          # Deliberately do not create runtime.st: M7.1 must verify that
+          # disposable runtime state is absent after cleanup.
+
+      - name: Run M7.1 collector PASS path
+        run: |
+          python3 tools/qualify_m7_1.py \
+            --repo . \
+            --rom /tmp/m7_1-selftest/rom.bin \
+            --rom-label CI-SYNTHETIC-NONROM \
+            --source-media /tmp/m7_1-selftest/source.st \
+            --runtime-media /tmp/m7_1-selftest/runtime.st \
+            --evidence-dir /tmp/m7_1-selftest/evidence \
+            --output /tmp/m7_1-selftest/out/m7_1-qualification.json \
+            --machine-profile st \
+            --operator-confirm-visible \
+            --operator-confirm-network-off \
+            --operator-confirm-no-writable-host-shares \
+            --operator-confirm-runtime-destroyed
+
+      - name: Validate PASS evidence
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('/tmp/m7_1-selftest/out/m7_1-qualification.json')
+          d = json.loads(p.read_text())
+          assert d['schema'] == 'atarisandbox.m7_1.qualification/1'
+          assert d['result'] == 'PASS'
+          assert d['cleanup_verified'] is True
+          assert d['runtime']['runtime_media_present_after_cleanup'] is False
+          assert d['operator_confirmations']['network_off'] is True
+          assert d['operator_confirmations']['no_writable_host_shares'] is True
+          assert len(d['evidence']) >= 2
+          print('M7.1 PASS-path evidence validation: PASS')
+          PY
+
+      - name: Verify fail-closed cleanup behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'runtime-still-present\n' > /tmp/m7_1-selftest/runtime.st
+          set +e
+          python3 tools/qualify_m7_1.py \
+            --repo . \
+            --rom /tmp/m7_1-selftest/rom.bin \
+            --rom-label CI-SYNTHETIC-NONROM \
+            --source-media /tmp/m7_1-selftest/source.st \
+            --runtime-media /tmp/m7_1-selftest/runtime.st \
+            --evidence-dir /tmp/m7_1-selftest/evidence \
+            --output /tmp/m7_1-selftest/out/m7_1-fail-closed.json \
+            --machine-profile st \
+            --operator-confirm-visible \
+            --operator-confirm-network-off \
+            --operator-confirm-no-writable-host-shares \
+            --operator-confirm-runtime-destroyed
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          python3 - <<'PY'
+          import json
+          d = json.load(open('/tmp/m7_1-selftest/out/m7_1-fail-closed.json'))
+          assert d['result'] == 'FAIL'
+          assert d['cleanup_verified'] is False
+          assert d['runtime']['runtime_media_present_after_cleanup'] is True
+          print('M7.1 fail-closed cleanup validation: PASS')
+          PY
+
+      - name: Upload self-test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atarisandbox-m7_1-collector-selftest
+          path: /tmp/m7_1-selftest/out/
+          if-no-files-found: error
