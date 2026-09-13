@@ -192,7 +192,7 @@ Exit gate: harmless M4.4 evidence passes the M5 adapter, independent ASW-manifes
 
 ## M6 — Cross-repo harmless E2E
 
-Status: next implementation milestone.
+Status: PASS on GitHub Actions run `34735588943` (successful rerun attempt) at AtariSandbox commit `8d708f133677ab431a773e654a58d2a31a745841`.
 
 - ASW checkout
 - AtariSandbox checkout/build
@@ -201,9 +201,13 @@ Status: next implementation milestone.
 - ASW ingestion and hash verification
 - evidence artifact upload
 
-Exit gate: one GitHub Actions run crosses the real AtariSandbox and ASW repositories, boots harmless EmuTOS, generates AtariSandbox evidence, validates/ingests it through ASW-owned code and uploads the hash-bound cross-repo evidence bundle.
+Qualified artifact: `atarisandbox-m6-asw-e2e-evidence`, ID `10314297146`, SHA-256 `16dd4c44ab04703f1fad9b7e2bee39847747836e3a56184896471812efbd9bed`.
+
+Exit gate: one GitHub Actions run crosses the real AtariSandbox and ASW repositories, boots harmless EmuTOS, generates AtariSandbox evidence, validates/ingests it through ASW-owned code and uploads the hash-bound cross-repo evidence bundle. PASS.
 
 ## M7 — Physical workstation qualification
+
+Status: active milestone; repository-side qualification tooling and runbook are next. Final PASS requires execution on the dedicated physical workstation and cannot be granted by GitHub Actions alone.
 
 - visible ST/STE qualification on the dedicated workstation
 - exact local TOS/EmuTOS provenance and hashes
@@ -211,6 +215,8 @@ Exit gate: one GitHub Actions run crosses the real AtariSandbox and ASW reposito
 - no writable host shares
 - disposable runtime state
 - cleanup/destruction verification
+
+Exit gate: a physical-workstation qualification run records machine/runtime provenance, ROM identity, deny-by-default isolation, disposable-state preservation and verified cleanup/destruction in a retained qualification bundle.
 
 Only after this gate should controlled real-malware runtime work begin.
 
