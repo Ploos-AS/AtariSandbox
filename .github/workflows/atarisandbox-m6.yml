@@ -63,7 +63,8 @@ jobs:
             --rom /tmp/emutos512k.img \
             --backend-revision "$GITHUB_SHA" \
             --runtime-seconds 8
-          python3 atarisandbox/tools/atarisandbox_asw_adapter.py /tmp/atarisandbox-m6
+          python3 atarisandbox/tools/atarisandbox_asw_adapter.py \
+            --analysis-dir /tmp/atarisandbox-m6
 
       - name: Ingest through ASW-owned AtariSandbox adapter
         run: |
