@@ -12,4 +12,20 @@ No hostile sample is used. Networking and writable host shared folders remain di
 
 One GitHub Actions run must complete the real cross-repository AtariSandbox + ASW path, verify the retained evidence hashes from ASW-owned code, and upload the combined evidence bundle.
 
-Status: implementation committed; GitHub Actions qualification pending.
+## Qualification
+
+Status: **PASS**.
+
+- GitHub Actions run: `34735588943` (successful rerun attempt)
+- AtariSandbox commit: `8d708f133677ab431a773e654a58d2a31a745841`
+- ASW ingestion fix used by the successful cross-repo run: `d66fad09030082691d3d1c0aceb67ea3ca610b3b`
+- Evidence artifact: `atarisandbox-m6-asw-e2e-evidence`
+- Artifact ID: `10314297146`
+- Artifact size: `745938` bytes
+- Artifact SHA-256: `16dd4c44ab04703f1fad9b7e2bee39847747836e3a56184896471812efbd9bed`
+
+The successful run passed AtariSandbox build, EmuTOS runtime, evidence generation, ASW-owned ingestion, independent cross-repository hash verification and evidence upload.
+
+M6 exit gate: **PASS**.
+
+Next: M7 physical workstation qualification.
