@@ -40,9 +40,9 @@ def main() -> None:
     if qualification.get("schema") != "atarisandbox.m4_4.qualification/1" or qualification.get("result") != "PASS":
         fail("M4.4 qualification is not PASS")
 
-    # M4.4 represents deny-by-default runtime policy with explicit string
-    # states. Require the exact qualified contract instead of translating it
-    # to synthetic boolean fields that M4.4 never emitted.
+    # M4.4's qualified contract expresses deny-by-default policy as strings.
+    # The ASW ingestion contract normalizes those states to boolean capability
+    # flags after requiring both evidence and qualification to agree.
     if evidence.get("network") != "disabled" or evidence.get("host_shared_folders") != "disabled":
         fail("unsafe runtime policy in evidence")
     if qualification.get("network") != "disabled" or qualification.get("host_shared_folders") != "disabled":
@@ -86,8 +86,8 @@ def main() -> None:
         "rom_sha256": evidence.get("rom_sha256"),
         "source_evidence": "evidence-m4_4.json",
         "source_evidence_sha256": source_manifest_sha256,
-        "network": "disabled",
-        "host_shared_folders": "disabled",
+        "network_enabled": False,
+        "host_shared_folders_enabled": False,
         "object_count": len(out_objects),
         "objects": out_objects,
     }
