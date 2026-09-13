@@ -1,0 +1,103 @@
+name: AtariSandbox M6
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  cross-repo-e2e:
+    name: M6 AtariSandbox to ASW harmless E2E
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout AtariSandbox
+        uses: actions/checkout@v4
+        with:
+          path: atarisandbox
+
+      - name: Checkout ASW
+        uses: actions/checkout@v4
+        with:
+          repository: Ploos-AS/AmiGuard-Signature-Workstation
+          path: asw
+
+      - name: Install build/runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential pkg-config libsdl2-dev libsdl2-2.0-0 libpng-dev zlib1g-dev libreadline-dev portaudio19-dev libudev-dev xvfb curl unzip python3
+
+      - name: Build AtariSandbox
+        working-directory: atarisandbox
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          test -x build/src/hatari
+          build/src/hatari --version
+
+      - name: Fetch official EmuTOS 1.4 512 KiB ROM package
+        run: |
+          curl --fail --location --retry 3 --retry-all-errors --output /tmp/emutos.zip 'https://sourceforge.net/projects/emutos/files/emutos/1.4/emutos-512k-1.4.zip/download'
+          unzip -t /tmp/emutos.zip
+          rm -rf /tmp/emutos && mkdir -p /tmp/emutos
+          unzip -q /tmp/emutos.zip -d /tmp/emutos
+          ROM="$(find /tmp/emutos -type f -name 'etos512*.img' -print -quit)"
+          test -n "$ROM"
+          cp "$ROM" /tmp/emutos512k.img
+          test "$(stat -c %s /tmp/emutos512k.img)" -eq 524288
+
+      - name: Generate harmless AtariSandbox evidence
+        env:
+          SDL_AUDIODRIVER: dummy
+        run: |
+          rm -rf /tmp/atarisandbox-m6 /tmp/asw-atari-m6
+          mkdir -p /tmp/atarisandbox-m6 /tmp/asw-atari-m6
+          xvfb-run -a python3 atarisandbox/tools/qualify_m4_4.py \
+            --analysis-dir /tmp/atarisandbox-m6 \
+            --hatari "$PWD/atarisandbox/build/src/hatari" \
+            --rom /tmp/emutos512k.img \
+            --backend-revision "$GITHUB_SHA" \
+            --runtime-seconds 8
+          python3 atarisandbox/tools/atarisandbox_asw_adapter.py /tmp/atarisandbox-m6
+
+      - name: Ingest through ASW-owned AtariSandbox adapter
+        run: |
+          python3 asw/tools/asw_atarisandbox.py /tmp/atarisandbox-m6 /tmp/asw-atari-m6
+
+      - name: Verify cross-repo evidence
+        run: |
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          p = Path('/tmp/asw-atari-m6')
+          m = json.loads((p / 'asw-atarisandbox-ingestion.json').read_text())
+          assert m['schema'] == 'asw.atarisandbox.ingestion/1'
+          assert m['platform'] == 'atari-st'
+          assert m['namespace'] == 'atari'
+          assert m['backend'] == 'atarisandbox'
+          assert m['network_enabled'] is False
+          assert m['host_shared_folders_enabled'] is False
+          assert m['result'] == 'PASS'
+          assert {o['kind'] for o in m['objects']} == {'screenshot', 'memory_snapshot'}
+          for obj in m['objects']:
+              f = p / obj['path']
+              assert f.is_file()
+              assert f.stat().st_size == obj['bytes']
+              assert hashlib.sha256(f.read_bytes()).hexdigest() == obj['sha256']
+          print('M6 cross-repo AtariSandbox -> ASW E2E PASS')
+          PY
+
+      - name: Upload M6 cross-repo evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atarisandbox-m6-asw-e2e-evidence
+          path: |
+            /tmp/atarisandbox-m6
+            /tmp/asw-atari-m6
+          if-no-files-found: warn
